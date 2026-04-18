@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.env
+.pytest_cache/
+.DS_Store
+*.perfetto-trace
+!tests/fixtures/traces/minimal.perfetto-trace
+!tests/fixtures/traces/jank_example.perfetto-trace

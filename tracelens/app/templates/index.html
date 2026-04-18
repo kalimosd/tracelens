@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ app_name }}</title>
+  </head>
+  <body>
+    <h1>{{ app_name }}</h1>
+    <form method="post" action="/analyze" enctype="multipart/form-data">
+      <label for="scenario">Scenario</label>
+      <input id="scenario" name="scenario" type="text" required />
+      <label for="process">Focused process</label>
+      <input id="process" name="process" type="text" />
+      <label for="trace">Trace file (.perfetto-trace)</label>
+      <input id="trace" name="trace" type="file" accept=".perfetto-trace,.pb" />
+      <button type="submit">Analyze</button>
+    </form>
+  </body>
+</html>

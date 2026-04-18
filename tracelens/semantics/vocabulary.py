@@ -1,0 +1,5 @@
+THREAD_ROLE_UNKNOWN = "unknown"
+THREAD_ROLE_APP_MAIN = "app_main"
+THREAD_ROLE_RENDER = "render_thread"
+THREAD_ROLE_FLUTTER_UI = "flutter_ui"
+THREAD_ROLE_FLUTTER_RASTER = "flutter_raster"
