@@ -1,0 +1,37 @@
+id: frame_rhythm
+name: Frame Rhythm Analysis
+description: Detect frame timing anomalies using Choreographer#doFrame intervals
+category: scrolling
+parameters:
+  - name: pid
+    type: int
+
+steps:
+  - id: frame_intervals
+    sql: |
+      SELECT s.ts, s.dur, s.dur / 1000000 AS dur_ms, s.name
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid}
+        AND s.name IN ('Choreographer#doFrame', 'doFrame', 'DrawFrame', 'performTraversals')
+      ORDER BY s.ts
+    display:
+      level: detail
+
+  - id: frame_summary
+    sql: |
+      SELECT COUNT(*) AS frame_count,
+             AVG(s.dur) / 1000000 AS avg_dur_ms,
+             MAX(s.dur) / 1000000 AS max_dur_ms,
+             SUM(CASE WHEN s.dur > 16666667 THEN 1 ELSE 0 END) AS over_16ms,
+             SUM(CASE WHEN s.dur > 33333334 THEN 1 ELSE 0 END) AS over_33ms
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid}
+        AND s.name IN ('Choreographer#doFrame', 'doFrame')
+    display:
+      level: summary

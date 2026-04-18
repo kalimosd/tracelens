@@ -1,0 +1,24 @@
+id: long_task_detection
+name: Long Task Detection
+description: Find slices exceeding a duration threshold for a given process
+category: general
+parameters:
+  - name: pid
+    type: int
+  - name: threshold_ms
+    type: int
+    default: "16"
+
+steps:
+  - id: long_slices
+    sql: |
+      SELECT s.ts, s.dur, s.dur / 1000000 AS dur_ms,
+             s.name, t.tid, t.name AS thread_name
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid} AND s.dur > ${threshold_ms|16} * 1000000
+      ORDER BY s.dur DESC
+    display:
+      level: key

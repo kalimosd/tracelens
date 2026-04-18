@@ -10,3 +10,7 @@ build/
 *.perfetto-trace
 !tests/fixtures/traces/minimal.perfetto-trace
 !tests/fixtures/traces/jank_example.perfetto-trace
+!tests/fixtures/traces/flutter_app.perfetto-trace
+!tests/fixtures/traces/heavy_startup.perfetto-trace
+!tests/fixtures/traces/multi_process.perfetto-trace
+!tests/fixtures/traces/cpu_contention.perfetto-trace

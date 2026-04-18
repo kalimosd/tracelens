@@ -1,0 +1,23 @@
+id: scheduling_delay
+name: Scheduling Delay Analysis
+description: Measure time threads spend in Runnable state waiting to be scheduled
+category: general
+parameters:
+  - name: pid
+    type: int
+
+steps:
+  - id: delay_by_thread
+    sql: |
+      SELECT t.name AS thread_name,
+             SUM(ts.dur) / 1000000 AS total_delay_ms,
+             MAX(ts.dur) / 1000000 AS max_single_ms,
+             COUNT(*) AS count
+      FROM thread_state ts
+      JOIN thread t USING(utid)
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid} AND ts.state = 'R' AND ts.dur > 0
+      GROUP BY t.name
+      ORDER BY total_delay_ms DESC
+    display:
+      level: key

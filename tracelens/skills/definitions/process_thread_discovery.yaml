@@ -1,0 +1,22 @@
+id: process_thread_discovery
+name: Process Thread Discovery
+description: List all threads for a process with slice counts
+category: general
+parameters:
+  - name: pid
+    type: int
+
+steps:
+  - id: threads
+    sql: |
+      SELECT t.tid, t.name AS thread_name,
+             COUNT(s.id) AS slice_count
+      FROM thread t
+      JOIN process p USING(upid)
+      LEFT JOIN thread_track tt ON tt.utid = t.utid
+      LEFT JOIN slice s ON s.track_id = tt.id
+      WHERE p.pid = ${pid} AND t.name IS NOT NULL AND t.name != ''
+      GROUP BY t.tid, t.name
+      ORDER BY slice_count DESC
+    display:
+      level: detail

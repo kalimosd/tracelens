@@ -4,6 +4,7 @@ import typer
 
 from tracelens.agent.orchestrator import Orchestrator
 from tracelens.config import get_settings
+from tracelens.llm.factory import create_llm_client
 from tracelens.output.cli_renderer import render_analysis
 from tracelens.skills.abnormal_windows import AbnormalWindowsSkill
 from tracelens.skills.process_thread_discovery import ProcessThreadDiscoverySkill
@@ -20,9 +21,16 @@ def analyze(
     trace: Path | None = typer.Option(None, "--trace", help="Path to a .perfetto-trace file"),
 ) -> None:
     """Run a TraceLens analysis."""
+    llm = create_llm_client(settings)
+    if llm:
+        typer.echo(f"LLM: {settings.llm_provider} ({settings.llm_model})", err=True)
+    else:
+        typer.echo("LLM: not configured, using rule-based analysis", err=True)
+
     orchestrator = Orchestrator(
         window_skill=AbnormalWindowsSkill(),
         process_thread_skill=ProcessThreadDiscoverySkill(),
+        llm=llm,
     )
 
     if trace is not None:
@@ -38,7 +46,6 @@ def analyze(
                 trace_session=session,
             )
     else:
-        # Demo fallback
         result = orchestrator.analyze(
             scenario=scenario,
             focused_process=process,

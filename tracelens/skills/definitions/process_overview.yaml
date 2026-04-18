@@ -1,0 +1,31 @@
+id: process_overview
+name: Process Overview
+description: Get basic stats for a process — thread count, slice count, time range
+category: general
+parameters:
+  - name: pid
+    type: int
+
+steps:
+  - id: overview
+    sql: |
+      SELECT
+        (SELECT COUNT(*) FROM thread t JOIN process p USING(upid)
+         WHERE p.pid = ${pid} AND t.name IS NOT NULL) AS thread_count,
+        (SELECT COUNT(*) FROM slice s
+         JOIN thread_track tt ON s.track_id = tt.id
+         JOIN thread t ON tt.utid = t.utid
+         JOIN process p ON t.upid = p.upid
+         WHERE p.pid = ${pid}) AS slice_count,
+        (SELECT MIN(s.ts) FROM slice s
+         JOIN thread_track tt ON s.track_id = tt.id
+         JOIN thread t ON tt.utid = t.utid
+         JOIN process p ON t.upid = p.upid
+         WHERE p.pid = ${pid}) AS min_ts,
+        (SELECT MAX(s.ts + s.dur) FROM slice s
+         JOIN thread_track tt ON s.track_id = tt.id
+         JOIN thread t ON tt.utid = t.utid
+         JOIN process p ON t.upid = p.upid
+         WHERE p.pid = ${pid}) AS max_ts
+    display:
+      level: summary

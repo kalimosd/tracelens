@@ -1,0 +1,26 @@
+id: blocking_chain
+name: Blocking Chain Analysis
+description: Identify threads with significant blocked/sleeping time and breakdown by state
+category: general
+parameters:
+  - name: pid
+    type: int
+
+steps:
+  - id: blocked_by_thread
+    sql: |
+      SELECT t.name AS thread_name,
+             ts.state,
+             SUM(ts.dur) / 1000000 AS total_ms,
+             MAX(ts.dur) / 1000000 AS max_single_ms,
+             COUNT(*) AS count
+      FROM thread_state ts
+      JOIN thread t USING(utid)
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid}
+        AND ts.state IN ('S', 'D', 'DK', 'I')
+        AND ts.dur > 0
+      GROUP BY t.name, ts.state
+      ORDER BY total_ms DESC
+    display:
+      level: detail

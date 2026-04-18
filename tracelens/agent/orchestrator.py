@@ -1,29 +1,22 @@
+"""Orchestrator: drives the analysis pipeline using planner + YAML skills + LLM synthesis."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from tracelens.agent.planner import choose_analysis_strategy
+from tracelens.agent.planner import AnalysisPlan, choose_analysis_strategy, generate_plan
 from tracelens.agent.synthesis import synthesize_result
 from tracelens.analysis.chain import build_analysis_chain
 from tracelens.analysis.evidence import make_top_window_evidence
+from tracelens.llm import LLMClient
 from tracelens.semantics.role_identifier import identify_thread_role
 from tracelens.skills.abnormal_windows import AbnormalWindowsSkill
-from tracelens.skills.blocking_chain import BlockingChainSkill
-from tracelens.skills.frame_rhythm import FrameRhythmSkill
-from tracelens.skills.long_task_detection import LongTaskDetectionSkill
 from tracelens.skills.process_thread_discovery import ProcessThreadDiscoverySkill
-from tracelens.skills.scheduling_delay import SchedulingDelaySkill
-from tracelens.skills.thread_state_distribution import ThreadStateDistributionSkill
+from tracelens.skills.yaml_engine import SkillRegistry, execute_skill
 from tracelens.trace.focused_process import select_focused_process
 from tracelens.trace.processor import TraceSession
-from tracelens.trace.queries import (
-    get_processes,
-    get_slices_for_process,
-    get_thread_states_for_process,
-    get_threads,
-    get_threads_for_process,
-)
+from tracelens.trace.queries import get_processes, get_threads_for_process
 from tracelens.types import AnalysisResult, EvidenceItem
 
 
@@ -31,20 +24,22 @@ from tracelens.types import AnalysisResult, EvidenceItem
 class Orchestrator:
     window_skill: AbnormalWindowsSkill
     process_thread_skill: ProcessThreadDiscoverySkill
+    llm: LLMClient | None = None
 
     def analyze(
         self,
         scenario: str,
         focused_process: str | None = None,
         trace_session: TraceSession | None = None,
+        # Legacy params for backward compat
         windows: list[dict] | None = None,
         threads: list[dict] | None = None,
     ) -> AnalysisResult:
-        strategy = choose_analysis_strategy(has_focused_process=focused_process is not None)
-
         if trace_session is not None:
-            return self._analyze_from_trace(trace_session, scenario, focused_process, strategy)
+            return self._analyze_from_trace(trace_session, scenario, focused_process)
 
+        # Legacy path
+        strategy = choose_analysis_strategy(has_focused_process=focused_process is not None)
         return self._analyze_from_data(scenario, focused_process, strategy, windows or [], threads or [])
 
     def _analyze_from_trace(
@@ -52,137 +47,144 @@ class Orchestrator:
         session: TraceSession,
         scenario: str,
         focused_process: str | None,
-        strategy: str,
     ) -> AnalysisResult:
+        # 1. Resolve focused process
         processes = get_processes(session)
         proc = select_focused_process(processes, focused_process)
         if proc is None:
             return synthesize_result(
                 evidence=[EvidenceItem(title="No process found", summary="Trace contains no usable processes")],
-                chain=build_analysis_chain(strategy=strategy, scenario=scenario, focused_process=focused_process),
+                chain=["No usable process found in trace"],
             )
 
         pid = proc["pid"]
         proc_name = proc["name"] or focused_process or "unknown"
 
-        # Thread discovery + role identification
+        # 2. Thread discovery + role identification
         raw_threads = get_threads_for_process(session, pid)
         threads_with_roles = []
         for t in raw_threads:
             name = t.get("thread_name") or ""
             role = identify_thread_role(name, proc_name)
             threads_with_roles.append({"process_name": proc_name, "thread_name": name, "role": role})
-        focused_threads = self.process_thread_skill.run(threads=threads_with_roles, focused_process=proc_name)
 
-        # Slices
-        slices = get_slices_for_process(session, pid)
-
-        # Thread states
-        thread_states = get_thread_states_for_process(session, pid)
-        valid_states = [s for s in thread_states if s.get("dur", 0) > 0]
-
-        # --- Run all skills ---
-        windows = self._build_window_signals(slices, valid_states)
-        ranked_windows = self.window_skill.run(windows)
-
-        state_dist = ThreadStateDistributionSkill().run(
-            [{"state": s["state"], "dur_ms": s["dur"] // 1_000_000} for s in valid_states]
-        )
-        long_tasks = LongTaskDetectionSkill().run(slices)
-        sched_delays = SchedulingDelaySkill().run(valid_states)
-        blocking = BlockingChainSkill().run(valid_states)
-        frame_rhythm = FrameRhythmSkill().run(slices)
-
-        all_threads = get_threads(session)
-        deps = []
-        try:
-            from tracelens.skills.dependency_summary import DependencySummarySkill
-            deps = DependencySummarySkill().run(all_threads, slices, focused_process=proc_name)
-        except Exception:
-            pass
-
-        # --- Build evidence ---
-        evidence: list[EvidenceItem] = []
-        chain = build_analysis_chain(strategy=strategy, scenario=scenario, focused_process=proc_name)
-        chain.append(f"Process {proc_name} (pid={pid}): {len(raw_threads)} threads, {len(slices)} slices")
-
-        # Window evidence
-        top_window = ranked_windows[0] if ranked_windows else {"start": 0, "end": 0, "score": 0}
         primary_role = (
-            next((t for t in focused_threads if t.get("role") not in ("unknown", None) and t.get("thread_name")), None)
-            or focused_threads[0] if focused_threads
-            else {"thread_name": "unknown", "role": "unknown", "process_name": proc_name}
+            next((t for t in threads_with_roles if t["role"] not in ("unknown",) and t["thread_name"]), None)
+            or {"thread_name": "unknown", "role": "unknown", "process_name": proc_name}
         )
-        evidence.append(make_top_window_evidence(top_window=top_window, primary_role=primary_role))
-        if ranked_windows:
-            chain.append(f"Top window score={top_window['score']}")
 
-        # Thread state distribution
-        if state_dist:
-            summary = ", ".join(f"{s['state']}={s['dur_ms']}ms" for s in state_dist[:5])
-            evidence.append(EvidenceItem(title="Thread state distribution", summary=summary))
+        # 3. Generate analysis plan (LLM or rules)
+        registry = SkillRegistry()
+        plan = generate_plan(
+            scenario=scenario,
+            has_focused_process=focused_process is not None,
+            registry=registry,
+            llm=self.llm,
+        )
 
-        # Long tasks
-        if long_tasks:
-            top = long_tasks[:5]
-            desc = "; ".join(f"{s['name']}={s['dur'] // 1_000_000}ms on {s.get('thread_name', '?')}" for s in top)
-            evidence.append(EvidenceItem(title="Long slices", summary=desc))
-            chain.append(f"Detected {len(long_tasks)} long slice(s)")
+        # 4. Execute YAML skills according to plan
+        evidence: list[EvidenceItem] = []
+        chain: list[str] = list(plan.chain_steps)
+        chain.append(f"Process {proc_name} (pid={pid}): {len(raw_threads)} threads")
+        chain.append(f"Primary role: {primary_role['thread_name']} ({primary_role['role']})")
 
-        # Scheduling delay
-        if sched_delays:
-            desc = "; ".join(f"{s['thread_name']}={s['total_delay_ms']}ms" for s in sched_delays[:3])
-            evidence.append(EvidenceItem(title="Scheduling delay", summary=desc))
-            chain.append(f"Scheduling delay on {len(sched_delays)} thread(s)")
+        for skill_id in plan.skill_ids:
+            skill_def = registry.get(skill_id)
+            if skill_def is None:
+                continue
 
-        # Blocking
-        if blocking:
-            desc = "; ".join(
-                f"{b['thread_name']}: total={b['total_blocked_ms']}ms, max_single={b['max_single_ms']}ms, count={b['block_count']}"
-                for b in blocking[:3]
-            )
-            evidence.append(EvidenceItem(title="Blocked threads", summary=desc))
-            chain.append(f"Blocking detected on {len(blocking)} thread(s)")
+            result = execute_skill(skill_def, session, {"pid": pid})
 
-        # Frame rhythm
-        if frame_rhythm.get("frame_count", 0) >= 2:
-            jank_count = frame_rhythm["jank_count"]
-            avg = frame_rhythm["avg_interval_ms"]
-            summary = f"{frame_rhythm['frame_count']} frames, avg interval {avg}ms, {jank_count} jank(s)"
-            evidence.append(EvidenceItem(title="Frame rhythm", summary=summary))
-            if jank_count > 0:
-                chain.append(f"Frame jank detected: {jank_count} frame(s) exceeded threshold")
+            if result.errors:
+                chain.append(f"Skill {skill_id}: {len(result.errors)} error(s)")
+                continue
 
-        # Dependencies
-        if deps:
-            desc = "; ".join(f"{d['process_name']} ({d['thread_count']} threads)" for d in deps[:3])
-            evidence.append(EvidenceItem(title="Cross-process dependencies", summary=desc))
+            # Convert skill results to evidence
+            ev = self._skill_result_to_evidence(skill_id, result.step_results)
+            if ev:
+                evidence.extend(ev)
+                chain.append(f"Skill {skill_id}: {sum(len(rows) for rows in result.step_results.values())} rows")
 
-        return synthesize_result(evidence=evidence, chain=chain)
+        # 5. Synthesize
+        return synthesize_result(evidence=evidence, chain=chain, llm=self.llm, scenario=scenario)
 
-    def _build_window_signals(self, slices: list[dict], thread_states: list[dict]) -> list[dict]:
-        if not slices:
-            return []
-        min_ts = min(s["ts"] for s in slices)
-        max_ts = max(s["ts"] + s["dur"] for s in slices)
-        window_ns = 100_000_000  # 100ms
-        windows: list[dict[str, Any]] = []
-        ts = min_ts
-        while ts < max_ts:
-            end = ts + window_ns
-            w_slices = [s for s in slices if s["ts"] < end and s["ts"] + s["dur"] > ts]
-            w_states = [s for s in thread_states if s["ts"] < end and s["ts"] + s.get("dur", 0) > ts]
-            long_tasks = sum(1 for s in w_slices if s["dur"] > 16_000_000)
-            blocked = len({s.get("thread_name") for s in w_states if s.get("state") in ("S", "D")})
-            sched_delay = sum(s.get("dur", 0) for s in w_states if s.get("state") == "R") // 1_000_000
-            windows.append({
-                "start": ts, "end": end,
-                "long_tasks": long_tasks,
-                "blocked_threads": blocked,
-                "scheduler_delay_ms": sched_delay,
-            })
-            ts = end
-        return windows
+    def _skill_result_to_evidence(
+        self, skill_id: str, step_results: dict[str, list[dict[str, Any]]]
+    ) -> list[EvidenceItem]:
+        """Convert raw skill step results into EvidenceItems."""
+        evidence: list[EvidenceItem] = []
+
+        if skill_id == "process_overview":
+            for row in step_results.get("overview", []):
+                evidence.append(EvidenceItem(
+                    title="Process overview",
+                    summary=f"{row.get('thread_count', 0)} threads, {row.get('slice_count', 0)} slices",
+                ))
+
+        elif skill_id == "thread_state_distribution":
+            rows = step_results.get("state_distribution", [])
+            if rows:
+                summary = ", ".join(f"{r['state']}={r['total_ms']}ms" for r in rows[:5])
+                evidence.append(EvidenceItem(title="Thread state distribution", summary=summary))
+
+        elif skill_id == "long_task_detection":
+            rows = step_results.get("long_slices", [])
+            if rows:
+                desc = "; ".join(
+                    f"{r['name']}={r['dur_ms']}ms on {r.get('thread_name', '?')}" for r in rows[:5]
+                )
+                evidence.append(EvidenceItem(title="Long slices", summary=desc))
+
+        elif skill_id == "scheduling_delay":
+            rows = step_results.get("delay_by_thread", [])
+            if rows:
+                desc = "; ".join(f"{r['thread_name']}={r['total_delay_ms']}ms" for r in rows[:3])
+                evidence.append(EvidenceItem(title="Scheduling delay", summary=desc))
+
+        elif skill_id == "blocking_chain":
+            rows = step_results.get("blocked_by_thread", [])
+            if rows:
+                # Aggregate by thread
+                by_thread: dict[str, dict] = {}
+                for r in rows:
+                    name = r["thread_name"]
+                    if name not in by_thread:
+                        by_thread[name] = {"total_ms": 0, "max_ms": 0, "count": 0}
+                    by_thread[name]["total_ms"] += r["total_ms"]
+                    by_thread[name]["max_ms"] = max(by_thread[name]["max_ms"], r["max_single_ms"])
+                    by_thread[name]["count"] += r["count"]
+                top = sorted(by_thread.items(), key=lambda x: x[1]["total_ms"], reverse=True)[:3]
+                desc = "; ".join(
+                    f"{name}: total={d['total_ms']}ms, max_single={d['max_ms']}ms, count={d['count']}"
+                    for name, d in top
+                )
+                evidence.append(EvidenceItem(title="Blocked threads", summary=desc))
+
+        elif skill_id == "frame_rhythm":
+            summary_rows = step_results.get("frame_summary", [])
+            if summary_rows:
+                r = summary_rows[0]
+                fc = r.get("frame_count") or 0
+                if fc == 0:
+                    return evidence
+                avg = round(r.get("avg_dur_ms") or 0, 1)
+                over16 = r.get("over_16ms") or 0
+                over33 = r.get("over_33ms") or 0
+                evidence.append(EvidenceItem(
+                    title="Frame rhythm",
+                    summary=f"{fc} frames, avg {avg}ms, {over16} over 16ms, {over33} over 33ms",
+                ))
+
+        elif skill_id == "process_thread_discovery":
+            rows = step_results.get("threads", [])
+            if rows:
+                top = rows[:5]
+                desc = "; ".join(f"{r['thread_name']} ({r['slice_count']} slices)" for r in top)
+                evidence.append(EvidenceItem(title="Key threads", summary=desc))
+
+        return evidence
+
+    # --- Legacy path (no trace session) ---
 
     def _analyze_from_data(
         self, scenario: str, focused_process: str | None, strategy: str,
@@ -191,7 +193,9 @@ class Orchestrator:
         ranked_windows = self.window_skill.run(windows)
         focused_threads = self.process_thread_skill.run(threads=threads, focused_process=focused_process)
         top_window = ranked_windows[0] if ranked_windows else {"start": 0, "end": 0, "score": 0}
-        primary_role = focused_threads[0] if focused_threads else {"thread_name": "unknown", "role": "unknown", "process_name": focused_process}
+        primary_role = focused_threads[0] if focused_threads else {
+            "thread_name": "unknown", "role": "unknown", "process_name": focused_process,
+        }
         evidence = [make_top_window_evidence(top_window=top_window, primary_role=primary_role)]
         chain = build_analysis_chain(strategy=strategy, scenario=scenario, focused_process=focused_process)
         return synthesize_result(evidence=evidence, chain=chain)

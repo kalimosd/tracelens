@@ -1,0 +1,22 @@
+id: thread_state_distribution
+name: Thread State Distribution
+description: Analyze time spent in each thread state (Running, Sleeping, Runnable, etc.) for a process
+category: general
+parameters:
+  - name: pid
+    type: int
+
+steps:
+  - id: state_distribution
+    sql: |
+      SELECT ts.state,
+             SUM(ts.dur) / 1000000 AS total_ms,
+             COUNT(*) AS count
+      FROM thread_state ts
+      JOIN thread t USING(utid)
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid} AND ts.dur > 0
+      GROUP BY ts.state
+      ORDER BY total_ms DESC
+    display:
+      level: key
