@@ -5,9 +5,11 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from tracelens.agent.followup import answer_followup
 from tracelens.agent.orchestrator import Orchestrator
 from tracelens.artifacts.store import InMemoryArtifactStore
 from tracelens.config import get_settings
+from tracelens.llm.factory import create_llm_client
 from tracelens.skills.abnormal_windows import AbnormalWindowsSkill
 from tracelens.skills.process_thread_discovery import ProcessThreadDiscoverySkill
 
@@ -18,14 +20,13 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    llm = create_llm_client(settings)
     app = FastAPI(title=settings.app_name)
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
         return TEMPLATES.TemplateResponse(
-            request,
-            "index.html",
-            {"app_name": settings.app_name},
+            request, "index.html", {"app_name": settings.app_name},
         )
 
     @app.post("/analyze", response_class=HTMLResponse)
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
         orchestrator = Orchestrator(
             window_skill=AbnormalWindowsSkill(),
             process_thread_skill=ProcessThreadDiscoverySkill(),
+            llm=llm,
         )
 
         if trace is not None and trace.size and trace.size > 0:
@@ -46,7 +48,6 @@ def create_app() -> FastAPI:
             with tempfile.NamedTemporaryFile(suffix=".perfetto-trace", delete=False) as tmp:
                 tmp.write(await trace.read())
                 tmp_path = tmp.name
-
             try:
                 with load_trace(tmp_path) as session:
                     result = orchestrator.analyze(
@@ -72,16 +73,31 @@ def create_app() -> FastAPI:
 
         session_id = STORE.save(result)
         return TEMPLATES.TemplateResponse(
-            request,
-            "result.html",
+            request, "result.html",
             {"app_name": settings.app_name, "session_id": session_id, "result": result},
         )
 
-    @app.post("/followup")
-    def followup(session_id: str = Form(...), question: str = Form(...)) -> dict[str, str]:
+    @app.post("/followup", response_class=HTMLResponse)
+    def followup(
+        request: Request,
+        session_id: str = Form(...),
+        question: str = Form(...),
+    ) -> HTMLResponse:
         result = STORE.load(session_id)
         if result is None:
             raise HTTPException(status_code=404, detail="session not found")
-        return {"session_id": session_id, "question": question, "status": "accepted"}
+
+        answer = answer_followup(question=question, result=result, llm=llm)
+
+        return TEMPLATES.TemplateResponse(
+            request, "followup.html",
+            {
+                "app_name": settings.app_name,
+                "session_id": session_id,
+                "question": question,
+                "answer": answer,
+                "result": result,
+            },
+        )
 
     return app

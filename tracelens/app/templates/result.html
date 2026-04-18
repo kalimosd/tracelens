@@ -6,8 +6,48 @@
   </head>
   <body>
     <h1>{{ result.conclusion }}</h1>
-    <p>Session: {{ session_id }}</p>
-    <h2>{{ result.key_evidence[0].title }}</h2>
-    <p>{{ result.key_evidence[0].summary }}</p>
+    <p><small>Session: {{ session_id }}</small></p>
+
+    <h2>Key Evidence</h2>
+    {% for item in result.key_evidence %}
+    <details open>
+      <summary><strong>{{ item.title }}</strong></summary>
+      <p>{{ item.summary }}</p>
+    </details>
+    {% endfor %}
+
+    <h2>Analysis Chain</h2>
+    <ol>
+      {% for step in result.analysis_chain %}
+      <li>{{ step }}</li>
+      {% endfor %}
+    </ol>
+
+    <h2>Optimization Directions</h2>
+    <ul>
+      {% for d in result.optimization_directions %}
+      <li>{{ d }}</li>
+      {% endfor %}
+    </ul>
+
+    {% if result.uncertainties %}
+    <h2>Uncertainties</h2>
+    <ul>
+      {% for u in result.uncertainties %}
+      <li>{{ u }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <hr />
+    <h2>Follow-up Question</h2>
+    <form method="post" action="/followup">
+      <input type="hidden" name="session_id" value="{{ session_id }}" />
+      <label for="question">Ask a question about this analysis:</label><br />
+      <input id="question" name="question" type="text" style="width:60%" placeholder="为什么怀疑这个线程？" required />
+      <button type="submit">Ask</button>
+    </form>
+
+    <p><a href="/">← New Analysis</a></p>
   </body>
 </html>

@@ -19,6 +19,7 @@ def analyze(
     scenario: str = typer.Option(..., "--scenario"),
     process: str | None = typer.Option(None, "--process"),
     trace: Path | None = typer.Option(None, "--trace", help="Path to a .perfetto-trace file"),
+    interactive: bool = typer.Option(False, "--interactive", "-i", help="Enter follow-up mode after analysis"),
 ) -> None:
     """Run a TraceLens analysis."""
     llm = create_llm_client(settings)
@@ -60,6 +61,22 @@ def analyze(
         )
 
     typer.echo(render_analysis(result))
+
+    if interactive:
+        from tracelens.agent.followup import answer_followup
+
+        typer.echo("\n--- Follow-up mode (type 'quit' to exit) ---", err=True)
+        while True:
+            try:
+                question = input("\n> ")
+            except (EOFError, KeyboardInterrupt):
+                break
+            if question.strip().lower() in ("quit", "exit", "q"):
+                break
+            if not question.strip():
+                continue
+            answer = answer_followup(question=question, result=result, llm=llm)
+            typer.echo(f"\n{answer}")
 
 
 @app.callback(invoke_without_command=True)

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ app_name }} Follow-up</title>
+  </head>
+  <body>
+    <h1>Follow-up</h1>
+    <p><small>Session: {{ session_id }}</small></p>
+
+    <h2>Question</h2>
+    <blockquote>{{ question }}</blockquote>
+
+    <h2>Answer</h2>
+    <div style="white-space: pre-wrap; background: #f5f5f5; padding: 1em; border-radius: 4px;">{{ answer }}</div>
+
+    <hr />
+    <h2>Ask Another Question</h2>
+    <form method="post" action="/followup">
+      <input type="hidden" name="session_id" value="{{ session_id }}" />
+      <input name="question" type="text" style="width:60%" placeholder="继续追问..." required />
+      <button type="submit">Ask</button>
+    </form>
+
+    <p><a href="/">← New Analysis</a></p>
+  </body>
+</html>
