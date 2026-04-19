@@ -1,0 +1,41 @@
+id: binder_analysis
+name: Binder Transaction Analysis
+description: Analyze cross-process binder calls — latency, callers, callees
+category: general
+parameters:
+  - name: pid
+    type: int
+
+steps:
+  - id: binder_calls
+    sql: |
+      SELECT s.ts, s.dur / 1000000 AS dur_ms, s.name,
+             t.name AS thread_name, t.tid
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid}
+        AND (s.name LIKE 'binder%' OR s.name LIKE 'Binder%')
+      ORDER BY s.dur DESC
+      LIMIT 30
+    display:
+      level: detail
+
+  - id: binder_summary
+    sql: |
+      SELECT t.name AS thread_name,
+             COUNT(*) AS call_count,
+             SUM(s.dur) / 1000000 AS total_ms,
+             AVG(s.dur) / 1000000 AS avg_ms,
+             MAX(s.dur) / 1000000 AS max_ms
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid}
+        AND (s.name LIKE 'binder%' OR s.name LIKE 'Binder%')
+      GROUP BY t.name
+      ORDER BY total_ms DESC
+    display:
+      level: key

@@ -1,0 +1,51 @@
+id: per_frame_analysis
+name: Per-Frame Analysis
+description: Analyze each frame individually — duration, main thread state during frame, blocking info
+category: scrolling
+parameters:
+  - name: pid
+    type: int
+  - name: limit
+    type: int
+    default: "20"
+
+steps:
+  - id: frame_list
+    sql: |
+      SELECT s.ts AS frame_ts, s.dur, s.dur / 1000000 AS dur_ms,
+             s.name AS frame_name, t.tid, t.name AS thread_name
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid}
+        AND s.name IN ('Choreographer#doFrame', 'doFrame', 'Frame')
+      ORDER BY s.dur DESC
+      LIMIT ${limit|20}
+    display:
+      level: key
+
+  - id: frame_thread_state
+    sql: |
+      SELECT
+        s.ts AS frame_ts,
+        s.dur / 1000000 AS frame_dur_ms,
+        ts2.state,
+        SUM(
+          MIN(ts2.ts + ts2.dur, s.ts + s.dur) - MAX(ts2.ts, s.ts)
+        ) / 1000000 AS state_dur_ms
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      JOIN thread_state ts2 ON ts2.utid = t.utid
+        AND ts2.ts < s.ts + s.dur
+        AND ts2.ts + ts2.dur > s.ts
+      WHERE p.pid = ${pid}
+        AND s.name IN ('Choreographer#doFrame', 'doFrame', 'Frame')
+        AND s.dur > 16000000
+        AND ts2.dur > 0
+      GROUP BY s.ts, ts2.state
+      ORDER BY s.dur DESC, state_dur_ms DESC
+    display:
+      level: detail

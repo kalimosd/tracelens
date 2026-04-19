@@ -1,0 +1,53 @@
+id: waker_chain
+name: Waker Chain Analysis
+description: Track who wakes up blocked threads — identifies cross-thread and cross-process dependencies
+category: general
+parameters:
+  - name: pid
+    type: int
+
+steps:
+  - id: waker_summary
+    sql: |
+      SELECT
+        t_blocked.name AS blocked_thread,
+        t_waker.name AS waker_thread,
+        p_waker.name AS waker_process,
+        COUNT(*) AS wake_count,
+        SUM(ts2.dur) / 1000000 AS total_blocked_ms,
+        MAX(ts2.dur) / 1000000 AS max_blocked_ms
+      FROM thread_state ts2
+      JOIN thread t_blocked ON ts2.utid = t_blocked.utid
+      JOIN process p_blocked ON t_blocked.upid = p_blocked.upid
+      LEFT JOIN thread t_waker ON ts2.waker_utid = t_waker.utid
+      LEFT JOIN process p_waker ON t_waker.upid = p_waker.upid
+      WHERE p_blocked.pid = ${pid}
+        AND ts2.state IN ('S', 'D', 'DK')
+        AND ts2.dur > 1000000
+        AND ts2.waker_utid IS NOT NULL
+        AND ts2.waker_utid > 0
+      GROUP BY t_blocked.name, t_waker.name, p_waker.name
+      ORDER BY total_blocked_ms DESC
+    display:
+      level: key
+
+  - id: top_blocked_functions
+    sql: |
+      SELECT
+        t.name AS thread_name,
+        ts2.blocked_function,
+        COUNT(*) AS count,
+        SUM(ts2.dur) / 1000000 AS total_ms,
+        MAX(ts2.dur) / 1000000 AS max_ms
+      FROM thread_state ts2
+      JOIN thread t ON ts2.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid}
+        AND ts2.state IN ('S', 'D', 'DK')
+        AND ts2.dur > 1000000
+        AND ts2.blocked_function IS NOT NULL
+      GROUP BY t.name, ts2.blocked_function
+      ORDER BY total_ms DESC
+      LIMIT 20
+    display:
+      level: detail

@@ -182,6 +182,44 @@ class Orchestrator:
                 desc = "; ".join(f"{r['thread_name']} ({r['slice_count']} slices)" for r in top)
                 evidence.append(EvidenceItem(title="Key threads", summary=desc))
 
+        elif skill_id == "per_frame_analysis":
+            frames = step_results.get("frame_list", [])
+            states = step_results.get("frame_thread_state", [])
+            if frames:
+                top = frames[:5]
+                desc = "; ".join(f"{r['frame_name']}={r['dur_ms']}ms on {r.get('thread_name', '?')}" for r in top)
+                evidence.append(EvidenceItem(title="Per-frame analysis", summary=f"{len(frames)} frames analyzed: {desc}"))
+            if states:
+                # Group by frame, show state breakdown for worst frames
+                by_frame: dict[int, list[str]] = {}
+                for s in states[:15]:
+                    ft = s["frame_ts"]
+                    by_frame.setdefault(ft, []).append(f"{s['state']}={s['state_dur_ms']}ms")
+                parts = []
+                for ft, breakdown in list(by_frame.items())[:3]:
+                    parts.append(f"frame@{ft}: {', '.join(breakdown)}")
+                if parts:
+                    evidence.append(EvidenceItem(title="Frame thread states", summary="; ".join(parts)))
+
+        elif skill_id == "waker_chain":
+            wakers = step_results.get("waker_summary", [])
+            blocked_fns = step_results.get("top_blocked_functions", [])
+            if wakers:
+                desc = "; ".join(
+                    f"{r['blocked_thread']} woken by {r['waker_thread']}({r.get('waker_process','?')}) {r['wake_count']}x, blocked {r['total_blocked_ms']}ms"
+                    for r in wakers[:5]
+                )
+                evidence.append(EvidenceItem(title="Waker chain", summary=desc))
+            if blocked_fns:
+                desc = "; ".join(f"{r['thread_name']}: {r['blocked_function']} ({r['total_ms']}ms, {r['count']}x)" for r in blocked_fns[:5])
+                evidence.append(EvidenceItem(title="Blocked functions", summary=desc))
+
+        elif skill_id == "binder_analysis":
+            summary = step_results.get("binder_summary", [])
+            if summary:
+                desc = "; ".join(f"{r['thread_name']}: {r['call_count']} calls, total={r['total_ms']}ms, max={r['max_ms']}ms" for r in summary[:3])
+                evidence.append(EvidenceItem(title="Binder transactions", summary=desc))
+
         return evidence
 
     # --- Legacy path (no trace session) ---

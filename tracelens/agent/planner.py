@@ -98,10 +98,13 @@ def _plan_with_rules(
         skill_ids = [
             "process_overview",
             "frame_rhythm",
+            "per_frame_analysis",
             "long_task_detection",
             "thread_state_distribution",
             "scheduling_delay",
             "blocking_chain",
+            "waker_chain",
+            "binder_analysis",
             "process_thread_discovery",
         ]
     elif any(kw in lower for kw in ("启动", "startup", "launch", "cold start", "冷启动")):
@@ -111,6 +114,8 @@ def _plan_with_rules(
             "long_task_detection",
             "thread_state_distribution",
             "blocking_chain",
+            "waker_chain",
+            "binder_analysis",
             "scheduling_delay",
             "process_thread_discovery",
         ]
