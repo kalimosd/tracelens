@@ -40,21 +40,40 @@ def _interpret_thread_state(e: EvidenceItem) -> EvidenceItem:
 
 def _interpret_long_slices(e: EvidenceItem) -> EvidenceItem:
     # Parse "name=XXms on thread"
-    slices = re.findall(r"(\w[\w#.]+)=(\d+)ms on (\S+)", e.summary)
+    slices = re.findall(r"([\w#.]+)=(\d+)ms on (\S+)", e.summary)
     if not slices:
         return e
 
     parts = [e.summary]
-    for name, dur_str, thread in slices[:3]:
+    for name, dur_str, thread in slices[:5]:
         dur = int(dur_str)
-        if "inflate" in name.lower():
-            parts.append(f"→ {name}({dur}ms): 布局加载耗时过长，建议使用 ViewStub 延迟加载或异步预加载")
-        elif "doFrame" in name or "performTraversals" in name:
+        lower_name = name.lower()
+        if "inflate" in lower_name:
+            parts.append(f"→ {name}({dur}ms): 布局加载耗时，建议 ViewStub 延迟加载或异步预加载")
+        elif "loadxmlresource" in lower_name or "resourcesimpl" in lower_name:
+            parts.append(f"→ {name}({dur}ms): 资源文件解析耗时，考虑资源预加载或简化 XML 复杂度")
+        elif "handleconfigurationchanged" in lower_name:
+            parts.append(f"→ {name}({dur}ms): 配置变更（如横竖屏切换）触发重建，考虑减少重建范围或缓存状态")
+        elif "handlelaunchactivity" in lower_name or "handleresumeactivity" in lower_name:
+            parts.append(f"→ {name}({dur}ms): Activity 生命周期耗时，检查 onCreate/onResume 中的重操作")
+        elif "handledestroyactivity" in lower_name:
+            parts.append(f"→ {name}({dur}ms): Activity 销毁耗时，检查 onDestroy 中的资源释放逻辑")
+        elif "bindapplication" in lower_name:
+            parts.append(f"→ {name}({dur}ms): 应用绑定耗时（冷启动），检查 Application.onCreate 和 ContentProvider")
+        elif "measure" in lower_name or "layout" in lower_name:
+            parts.append(f"→ {name}({dur}ms): 布局测量/排列耗时，检查嵌套层级或复杂约束")
+        elif "doframe" in lower_name or "performtraversals" in lower_name:
             parts.append(f"→ {name}({dur}ms): 单帧处理超预算，需要拆分帧内耗时操作")
-        elif "binder" in name.lower():
+        elif "binder" in lower_name:
             parts.append(f"→ {name}({dur}ms): 跨进程调用耗时，考虑异步化或减少调用频率")
-        elif "gc" in name.lower() or "GC" in name:
-            parts.append(f"→ {name}({dur}ms): GC 暂停，检查内存分配热点")
+        elif "gc" in lower_name or name.startswith("young") or name.startswith("concurrent"):
+            parts.append(f"→ {name}({dur}ms): GC 暂停，检查内存分配热点，减少临时对象创建")
+        elif "dequeueBuffer" in name:
+            parts.append(f"→ {name}({dur}ms): 等待 SurfaceFlinger 释放 buffer，可能是合成端瓶颈")
+        elif "eglSwapBuffers" in name:
+            parts.append(f"→ {name}({dur}ms): GPU 提交耗时，检查渲染复杂度")
+        elif "computeFrame" in name or "compute" in lower_name:
+            parts.append(f"→ {name}({dur}ms): 计算密集操作，考虑拆分到后台线程或分帧处理")
         elif dur > 50:
             parts.append(f"→ {name}({dur}ms): 严重耗时，需要排查具体逻辑")
         elif dur > 16:
