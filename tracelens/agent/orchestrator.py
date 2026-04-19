@@ -250,8 +250,13 @@ class Orchestrator:
 
         elif skill_id == "binder_analysis":
             summary = step_results.get("binder_summary", [])
+            calls = step_results.get("binder_calls", [])
             if summary:
                 desc = "; ".join(f"{r['thread_name']}: {r['call_count']} calls, total={r['total_ms']}ms, max={r['max_ms']}ms" for r in summary[:3])
+                if calls:
+                    desc += "\n  调用明细："
+                    for c in calls[:8]:
+                        desc += f"\n    {c['name']} = {c['dur_ms']}ms (on {c['thread_name']})"
                 evidence.append(EvidenceItem(title=_zh("Binder transactions"), summary=desc))
 
         elif skill_id == "frame_causal_chain":

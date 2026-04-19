@@ -184,14 +184,22 @@ def _build_conclusion(evidence: list[EvidenceItem]) -> str:
         break
 
     # Binder
-    for title in ("Binder 调用", "Binder transactions"):
-        if title not in em:
+    for e in evidence:
+        if e.title not in ("Binder 调用", "Binder transactions"):
             continue
-        calls = re.search(r"(\d+) calls", em[title])
-        total = re.search(r"total=(\d+)ms", em[title])
-        max_ms = re.search(r"max=(\d+)ms", em[title])
-        if calls and total:
-            causes.append(f"Binder 调用 {calls.group(1)} 次共 {total.group(1)}ms（最长 {max_ms.group(1) if max_ms else '?'}ms）")
+        first_line = e.summary.split("\n")[0]
+        calls_match = re.search(r"(\d+) calls", first_line)
+        total_match = re.search(r"total=(\d+)ms", first_line)
+        max_match = re.search(r"max=(\d+)ms", first_line)
+        if calls_match and total_match:
+            header = f"Binder 调用 {calls_match.group(1)} 次共 {total_match.group(1)}ms（最长 {max_match.group(1) if max_match else '?'}ms）"
+            # Extract per-call details
+            detail_lines = re.findall(r"(\S+)\s*=\s*(\d+)ms\s*\(on\s+(\S+)\)", e.summary)
+            if detail_lines:
+                details = "，".join(f"{name} {dur}ms" for name, dur, _ in detail_lines[:4])
+                causes.append(f"{header}：{details}")
+            else:
+                causes.append(header)
         break
 
     # Thread state
