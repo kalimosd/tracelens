@@ -20,6 +20,21 @@
         <p class="text-gray-800 font-medium">{{ result.conclusion }}</p>
       </div>
 
+      <!-- Summary table -->
+      <div class="bg-white rounded-lg shadow-sm border mb-6 overflow-hidden">
+        <div class="bg-gray-800 text-white px-4 py-2 text-sm font-medium">分析概览</div>
+        <table class="w-full text-sm">
+          {% for item in result.key_evidence %}
+          {% if item.title in ['Process overview', 'Frame rhythm', 'Thread state distribution', 'Scheduling delay', 'Binder transactions'] %}
+          <tr class="border-b">
+            <td class="px-4 py-2 font-medium text-gray-600 w-1/4">{{ item.title }}</td>
+            <td class="px-4 py-2 text-gray-800 font-mono">{{ item.summary.split('\n')[0] }}</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </table>
+      </div>
+
       <!-- Evidence -->
       <h2 class="text-lg font-semibold text-gray-800 mb-3">关键证据</h2>
       <div class="space-y-2 mb-6">
