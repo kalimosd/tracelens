@@ -1,53 +1,77 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
   <head>
     <meta charset="utf-8" />
-    <title>{{ app_name }} Result</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }} — 分析结果</title>
+    <script src="https://cdn.tailwindcss.com"></script>
   </head>
-  <body>
-    <h1>{{ result.conclusion }}</h1>
-    <p><small>Session: {{ session_id }}</small></p>
+  <body class="bg-gray-50 min-h-screen">
+    <div class="max-w-3xl mx-auto py-10 px-4">
+      <!-- Header -->
+      <div class="mb-8">
+        <a href="/" class="text-blue-600 text-sm hover:underline">← 新分析</a>
+        <h1 class="text-2xl font-bold text-gray-900 mt-2">分析结论</h1>
+        <p class="text-xs text-gray-400 mt-1">Session: {{ session_id }}</p>
+      </div>
 
-    <h2>Key Evidence</h2>
-    {% for item in result.key_evidence %}
-    <details open>
-      <summary><strong>{{ item.title }}</strong></summary>
-      <p>{{ item.summary }}</p>
-    </details>
-    {% endfor %}
+      <!-- Conclusion -->
+      <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded mb-6">
+        <p class="text-gray-800 font-medium">{{ result.conclusion }}</p>
+      </div>
 
-    <h2>Analysis Chain</h2>
-    <ol>
-      {% for step in result.analysis_chain %}
-      <li>{{ step }}</li>
-      {% endfor %}
-    </ol>
+      <!-- Evidence -->
+      <h2 class="text-lg font-semibold text-gray-800 mb-3">关键证据</h2>
+      <div class="space-y-2 mb-6">
+        {% for item in result.key_evidence %}
+        <details class="bg-white rounded-lg shadow-sm border" {% if loop.index <= 5 %}open{% endif %}>
+          <summary class="px-4 py-3 cursor-pointer font-medium text-gray-700 hover:bg-gray-50">
+            {{ item.title }}
+          </summary>
+          <div class="px-4 pb-3 text-sm text-gray-600 font-mono whitespace-pre-wrap">{{ item.summary }}</div>
+        </details>
+        {% endfor %}
+      </div>
 
-    <h2>Optimization Directions</h2>
-    <ul>
-      {% for d in result.optimization_directions %}
-      <li>{{ d }}</li>
-      {% endfor %}
-    </ul>
+      <!-- Analysis Chain -->
+      <h2 class="text-lg font-semibold text-gray-800 mb-3">分析链</h2>
+      <ol class="list-decimal list-inside space-y-1 text-sm text-gray-600 mb-6 bg-white p-4 rounded-lg shadow-sm border">
+        {% for step in result.analysis_chain %}
+        <li>{{ step }}</li>
+        {% endfor %}
+      </ol>
 
-    {% if result.uncertainties %}
-    <h2>Uncertainties</h2>
-    <ul>
-      {% for u in result.uncertainties %}
-      <li>{{ u }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
+      <!-- Optimization Directions -->
+      <h2 class="text-lg font-semibold text-gray-800 mb-3">优化方向</h2>
+      <ul class="space-y-2 mb-6">
+        {% for d in result.optimization_directions %}
+        <li class="bg-green-50 border-l-4 border-green-400 px-4 py-2 text-sm text-gray-700 rounded">{{ d }}</li>
+        {% endfor %}
+      </ul>
 
-    <hr />
-    <h2>Follow-up Question</h2>
-    <form method="post" action="/followup">
-      <input type="hidden" name="session_id" value="{{ session_id }}" />
-      <label for="question">Ask a question about this analysis:</label><br />
-      <input id="question" name="question" type="text" style="width:60%" placeholder="为什么怀疑这个线程？" required />
-      <button type="submit">Ask</button>
-    </form>
+      <!-- Uncertainties -->
+      {% if result.uncertainties %}
+      <h2 class="text-lg font-semibold text-gray-800 mb-3">不确定性</h2>
+      <ul class="space-y-1 mb-6">
+        {% for u in result.uncertainties %}
+        <li class="bg-yellow-50 border-l-4 border-yellow-400 px-4 py-2 text-sm text-gray-600 rounded">{{ u }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
 
-    <p><a href="/">← New Analysis</a></p>
+      <!-- Follow-up -->
+      <div class="mt-8 bg-white p-6 rounded-lg shadow-sm border">
+        <h2 class="text-lg font-semibold text-gray-800 mb-3">继续追问</h2>
+        <form method="post" action="/followup" class="flex gap-2">
+          <input type="hidden" name="session_id" value="{{ session_id }}" />
+          <input name="question" type="text" required placeholder="为什么这个线程被阻塞？"
+            class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <button type="submit"
+            class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition">
+            提问
+          </button>
+        </form>
+      </div>
+    </div>
   </body>
 </html>

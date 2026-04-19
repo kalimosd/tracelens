@@ -53,7 +53,7 @@ def test_synthesize_falls_back_without_llm():
 
     result = synthesize_result(evidence=evidence, chain=chain, llm=None)
 
-    assert "long slices" in result.conclusion.lower()
+    assert "长耗时" in result.conclusion or "long slices" in result.conclusion.lower()
 
 
 def test_synthesize_falls_back_on_llm_error():
@@ -65,4 +65,4 @@ def test_synthesize_falls_back_on_llm_error():
     result = synthesize_result(evidence=evidence, chain=["step"], llm=BrokenLLM(), scenario="test")
 
     # Should fall back to rules, not crash
-    assert "long slices" in result.conclusion.lower()
+    assert "长耗时" in result.conclusion or "long slices" in result.conclusion.lower()

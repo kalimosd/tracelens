@@ -192,4 +192,4 @@ class TestSynthesisVerification:
         evidence = [EvidenceItem(title="Long slices", summary="inflate=50ms")]
         result = synthesize_result(evidence=evidence, chain=["step"], llm=BrokenLLM(), scenario="test")
         assert result.conclusion  # Should not crash
-        assert "long slices" in result.conclusion.lower()
+        assert "长耗时" in result.conclusion or "long slices" in result.conclusion.lower()

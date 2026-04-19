@@ -12,5 +12,5 @@ def test_analyze_route_renders_result_page():
     )
 
     assert response.status_code == 200
-    assert "initial analysis ready" in response.text
+    assert "初步分析完成" in response.text
     assert "Top abnormal window" in response.text

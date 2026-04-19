@@ -85,5 +85,5 @@ class TestBinderAnalysis:
         assert len(calls) > 0
 
 
-def test_registry_has_10_skills(registry):
-    assert registry.count == 10
+def test_registry_has_11_skills(registry):
+    assert registry.count == 11

@@ -10,4 +10,4 @@ def test_index_route_returns_trace_lens_page():
 
     assert response.status_code == 200
     assert "TraceLens" in response.text
-    assert "Scenario" in response.text
+    assert "场景描述" in response.text

@@ -1,19 +1,40 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ app_name }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
   </head>
-  <body>
-    <h1>{{ app_name }}</h1>
-    <form method="post" action="/analyze" enctype="multipart/form-data">
-      <label for="scenario">Scenario</label>
-      <input id="scenario" name="scenario" type="text" required />
-      <label for="process">Focused process</label>
-      <input id="process" name="process" type="text" />
-      <label for="trace">Trace file (.perfetto-trace)</label>
-      <input id="trace" name="trace" type="file" accept=".perfetto-trace,.pb" />
-      <button type="submit">Analyze</button>
-    </form>
+  <body class="bg-gray-50 min-h-screen">
+    <div class="max-w-2xl mx-auto py-12 px-4">
+      <h1 class="text-3xl font-bold text-gray-900 mb-2">{{ app_name }}</h1>
+      <p class="text-gray-500 mb-8">Perfetto Trace 性能分析 Agent</p>
+
+      <form method="post" action="/analyze" enctype="multipart/form-data" class="space-y-6 bg-white p-6 rounded-lg shadow">
+        <div>
+          <label for="trace" class="block text-sm font-medium text-gray-700 mb-1">Trace 文件</label>
+          <input id="trace" name="trace" type="file" accept=".perfetto-trace,.pb,.pftrace"
+            class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+        </div>
+
+        <div>
+          <label for="scenario" class="block text-sm font-medium text-gray-700 mb-1">场景描述</label>
+          <input id="scenario" name="scenario" type="text" required placeholder="例如：桌面滑动卡顿、应用冷启动慢"
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+
+        <div>
+          <label for="process" class="block text-sm font-medium text-gray-700 mb-1">目标进程 <span class="text-gray-400">(可选)</span></label>
+          <input id="process" name="process" type="text" placeholder="例如：com.example.launcher"
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+
+        <button type="submit"
+          class="w-full bg-blue-600 text-white py-2 px-4 rounded-md font-medium hover:bg-blue-700 transition">
+          开始分析
+        </button>
+      </form>
+    </div>
   </body>
 </html>

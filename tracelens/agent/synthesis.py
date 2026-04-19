@@ -125,20 +125,20 @@ def _build_conclusion(evidence: list[EvidenceItem]) -> str:
     parts: list[str] = []
 
     if "Long slices" in titles:
-        parts.append("long slices detected on critical threads")
+        parts.append("关键线程存在长耗时操作")
     if "Scheduling delay" in titles:
-        parts.append("scheduling delays present")
+        parts.append("存在调度延迟")
     if "Blocked threads" in titles:
-        parts.append("thread blocking observed")
+        parts.append("线程阻塞")
     if "Frame rhythm" in titles:
         for e in evidence:
             if e.title == "Frame rhythm" and "jank" in e.summary and "0 jank" not in e.summary:
-                parts.append("frame jank detected")
+                parts.append("检测到掉帧")
                 break
 
     if not parts:
-        return "initial analysis ready"
-    return "Analysis: " + "; ".join(parts) + "."
+        return "初步分析完成"
+    return "分析结论：" + "；".join(parts) + "。"
 
 
 def _build_directions(evidence: list[EvidenceItem]) -> list[str]:
@@ -146,18 +146,20 @@ def _build_directions(evidence: list[EvidenceItem]) -> list[str]:
     directions: list[str] = []
 
     if "Long slices" in titles:
-        directions.append("Investigate long slices — consider breaking up heavy work or moving it off the main thread")
+        directions.append("排查长耗时操作 — 考虑拆分耗时任务或移到非主线程执行")
     if "Scheduling delay" in titles:
-        directions.append("Check CPU contention — threads waiting in runnable state suggest scheduling pressure")
+        directions.append("检查 CPU 竞争 — 线程在 Runnable 状态等待说明调度压力大")
     if "Blocked threads" in titles:
-        directions.append("Examine blocking causes — look for lock contention, binder calls, or I/O waits")
+        directions.append("排查阻塞原因 — 关注锁竞争、Binder 调用或 I/O 等待")
     if "Frame rhythm" in titles:
-        directions.append("Review frame pipeline — jank frames indicate rendering or composition bottlenecks")
+        directions.append("检查渲染管线 — 掉帧说明渲染或合成存在瓶颈")
     if "Cross-process dependencies" in titles:
-        directions.append("Check cross-process calls — binder or IPC latency may contribute to delays")
+        directions.append("检查跨进程调用 — Binder 或 IPC 延迟可能是卡顿原因")
+    if "Binder transactions" in titles:
+        directions.append("优化 Binder 调用 — 减少调用频率或数据传输量")
 
     if not directions:
-        directions.append("Inspect the highest-scoring window and focused process threads first")
+        directions.append("检查异常窗口中得分最高的区间和目标进程的关键线程")
 
     return directions
 
@@ -167,8 +169,8 @@ def _build_uncertainties(evidence: list[EvidenceItem]) -> list[str]:
     titles = {e.title for e in evidence}
 
     if "Frame rhythm" not in titles:
-        uncertainties.append("No frame rhythm data — trace may lack frame-related slices")
-    if "Cross-process dependencies" not in titles:
-        uncertainties.append("No cross-process dependency data available")
+        uncertainties.append("缺少帧节奏数据 — trace 中可能没有帧相关的 slice")
+    if "Cross-process dependencies" not in titles and "Binder transactions" not in titles:
+        uncertainties.append("缺少跨进程依赖数据")
 
     return uncertainties

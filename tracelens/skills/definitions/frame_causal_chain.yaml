@@ -1,0 +1,79 @@
+id: frame_causal_chain
+name: Frame Causal Chain
+description: For each jank frame, analyze what the main thread was doing — slice breakdown + thread state + blocking cause
+category: scrolling
+parameters:
+  - name: pid
+    type: int
+  - name: threshold_ms
+    type: int
+    default: "16"
+
+steps:
+  - id: jank_frames
+    sql: |
+      SELECT s.ts AS frame_ts, s.dur, s.dur / 1000000 AS dur_ms,
+             s.name AS frame_name, t.tid, t.name AS thread_name, t.utid
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE p.pid = ${pid}
+        AND s.name IN ('Choreographer#doFrame', 'doFrame', 'Frame')
+        AND s.dur > ${threshold_ms|16} * 1000000
+      ORDER BY s.dur DESC
+      LIMIT 10
+    display:
+      level: key
+
+  - id: frame_slices
+    sql: |
+      SELECT
+        parent.ts AS frame_ts,
+        child.ts AS slice_ts,
+        child.dur / 1000000 AS dur_ms,
+        child.name AS slice_name,
+        child.depth
+      FROM slice parent
+      JOIN thread_track tt ON parent.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      JOIN slice child ON child.track_id = parent.track_id
+        AND child.ts >= parent.ts
+        AND child.ts + child.dur <= parent.ts + parent.dur
+        AND child.depth = parent.depth + 1
+      WHERE p.pid = ${pid}
+        AND parent.name IN ('Choreographer#doFrame', 'doFrame', 'Frame')
+        AND parent.dur > ${threshold_ms|16} * 1000000
+      ORDER BY parent.dur DESC, child.dur DESC
+    display:
+      level: detail
+
+  - id: frame_state_breakdown
+    sql: |
+      SELECT
+        s.ts AS frame_ts,
+        s.dur / 1000000 AS frame_dur_ms,
+        ts2.state,
+        SUM(
+          MIN(ts2.ts + ts2.dur, s.ts + s.dur) - MAX(ts2.ts, s.ts)
+        ) / 1000000 AS state_ms,
+        ROUND(
+          SUM(MIN(ts2.ts + ts2.dur, s.ts + s.dur) - MAX(ts2.ts, s.ts)) * 100.0 / s.dur,
+          1
+        ) AS state_pct
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      JOIN thread_state ts2 ON ts2.utid = t.utid
+        AND ts2.ts < s.ts + s.dur
+        AND ts2.ts + ts2.dur > s.ts
+        AND ts2.dur > 0
+      WHERE p.pid = ${pid}
+        AND s.name IN ('Choreographer#doFrame', 'doFrame', 'Frame')
+        AND s.dur > ${threshold_ms|16} * 1000000
+      GROUP BY s.ts, ts2.state
+      ORDER BY s.dur DESC, state_ms DESC
+    display:
+      level: detail

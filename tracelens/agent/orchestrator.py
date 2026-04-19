@@ -10,6 +10,7 @@ from tracelens.agent.synthesis import synthesize_result
 from tracelens.agent.verifier import apply_corrections, verify_result
 from tracelens.analysis.chain import build_analysis_chain
 from tracelens.analysis.evidence import make_top_window_evidence
+from tracelens.analysis.interpreter import interpret_evidence
 from tracelens.llm import LLMClient
 from tracelens.semantics.role_identifier import identify_thread_role
 from tracelens.skills.abnormal_windows import AbnormalWindowsSkill
@@ -106,7 +107,10 @@ class Orchestrator:
                 evidence.extend(ev)
                 chain.append(f"Skill {skill_id}: {sum(len(rows) for rows in result.step_results.values())} rows")
 
-        # 5. Synthesize
+        # 5. Interpret evidence (add severity, explanation, suggestions)
+        evidence = interpret_evidence(evidence)
+
+        # 6. Synthesize
         result = synthesize_result(evidence=evidence, chain=chain, llm=self.llm, scenario=scenario)
 
         # 6. Verify
@@ -227,6 +231,33 @@ class Orchestrator:
             if summary:
                 desc = "; ".join(f"{r['thread_name']}: {r['call_count']} calls, total={r['total_ms']}ms, max={r['max_ms']}ms" for r in summary[:3])
                 evidence.append(EvidenceItem(title="Binder transactions", summary=desc))
+
+        elif skill_id == "frame_causal_chain":
+            frames = step_results.get("jank_frames", [])
+            states = step_results.get("frame_state_breakdown", [])
+            child_slices = step_results.get("frame_slices", [])
+            if frames:
+                for f in frames[:5]:
+                    frame_ts = f["frame_ts"]
+                    dur_ms = f["dur_ms"]
+                    thread = f.get("thread_name", "?")
+
+                    # Find state breakdown for this frame
+                    frame_states = [s for s in states if s["frame_ts"] == frame_ts]
+                    state_desc = ", ".join(f"{s['state']}={s['state_ms']}ms({s['state_pct']}%)" for s in frame_states) if frame_states else "无状态数据"
+
+                    # Find child slices for this frame
+                    frame_children = [c for c in child_slices if c["frame_ts"] == frame_ts]
+                    if frame_children:
+                        top_children = sorted(frame_children, key=lambda c: c["dur_ms"], reverse=True)[:3]
+                        children_desc = ", ".join(f"{c['slice_name']}={c['dur_ms']}ms" for c in top_children)
+                    else:
+                        children_desc = "无子 slice"
+
+                    evidence.append(EvidenceItem(
+                        title="Frame causal chain",
+                        summary=f"帧 {thread}@{frame_ts}: {dur_ms}ms\n  状态: {state_desc}\n  耗时操作: {children_desc}",
+                    ))
 
         return evidence
 

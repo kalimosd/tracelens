@@ -98,6 +98,7 @@ def _plan_with_rules(
         skill_ids = [
             "process_overview",
             "frame_rhythm",
+            "frame_causal_chain",
             "per_frame_analysis",
             "long_task_detection",
             "thread_state_distribution",

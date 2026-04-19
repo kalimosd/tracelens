@@ -64,12 +64,12 @@ def _answer_with_rules(question: str, result: AnalysisResult) -> str:
 
     keyword_map = {
         ("线程", "thread", "role"): "key_evidence",
-        ("阻塞", "block", "sleep", "waiting"): "Blocked threads",
-        ("调度", "schedule", "delay", "runnable"): "Scheduling delay",
-        ("帧", "frame", "jank", "fps", "掉帧"): "Frame rhythm",
-        ("长", "long", "slow", "耗时"): "Long slices",
-        ("状态", "state", "distribution"): "Thread state distribution",
-        ("进程", "process", "binder", "跨进程"): "Cross-process dependencies",
+        ("阻塞", "block", "sleep", "waiting", "被谁"): ["Blocked threads", "Waker chain", "Blocked functions"],
+        ("调度", "schedule", "delay", "runnable"): ["Scheduling delay"],
+        ("帧", "frame", "jank", "fps", "掉帧"): ["Frame rhythm", "Per-frame analysis", "Frame thread states"],
+        ("长", "long", "slow", "耗时"): ["Long slices"],
+        ("状态", "state", "distribution"): ["Thread state distribution"],
+        ("进程", "process", "binder", "跨进程"): ["Cross-process dependencies", "Binder transactions", "Waker chain"],
         ("优化", "optimize", "建议", "direction"): "directions",
         ("结论", "conclusion", "总结", "summary"): "conclusion",
     }
@@ -83,16 +83,26 @@ def _answer_with_rules(question: str, result: AnalysisResult) -> str:
                 matched.extend(result.optimization_directions)
             elif target == "conclusion":
                 matched.append(result.conclusion)
-            else:
-                for e in result.key_evidence:
-                    if e.title == target:
-                        matched.append(f"[{e.title}] {e.summary}")
+            elif isinstance(target, list):
+                for title in target:
+                    for e in result.key_evidence:
+                        if e.title == title:
+                            matched.append(f"[{e.title}] {e.summary}")
 
     if not matched:
         # Return all evidence as context
-        matched.append(f"Conclusion: {result.conclusion}")
+        matched.append(f"结论: {result.conclusion}")
         for e in result.key_evidence:
             matched.append(f"[{e.title}] {e.summary}")
-        matched.append("\n(Tip: configure an LLM API key for more detailed follow-up answers)")
+        matched.append("\n(提示: 配置 LLM API Key 可获得更详细的追问回答)")
+
+    # Add hints when data is missing for the question
+    evidence_titles = {e.title for e in result.key_evidence}
+    if any(kw in lower for kw in ("被谁", "谁block", "谁阻塞", "waker", "唤醒")):
+        if "Waker chain" not in evidence_titles:
+            matched.append("\n⚠️ 当前 trace 缺少唤醒链数据（需要 ftrace sched_waking 事件）。无法确定具体是谁阻塞了线程。建议抓 trace 时开启 sched/sched_waking 事件。")
+    if any(kw in lower for kw in ("函数", "function", "调用栈", "callstack")):
+        if "Blocked functions" not in evidence_titles:
+            matched.append("\n⚠️ 当前 trace 缺少阻塞函数数据（需要 ftrace 中的 blocked_function 字段）。")
 
     return "\n".join(matched)
