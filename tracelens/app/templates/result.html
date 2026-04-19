@@ -17,7 +17,7 @@
 
       <!-- Conclusion -->
       <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded mb-6">
-        <p class="text-gray-800 font-medium">{{ result.conclusion }}</p>
+        <p class="text-gray-800 font-medium whitespace-pre-wrap">{{ result.conclusion }}</p>
       </div>
 
       <!-- Summary table -->
@@ -43,7 +43,7 @@
           <summary class="px-4 py-3 cursor-pointer font-medium text-gray-700 hover:bg-gray-50">
             {{ item.title }}
           </summary>
-          <div class="px-4 pb-3 text-sm text-gray-600 font-mono whitespace-pre-wrap">{{ item.summary }}</div>
+          <div class="px-4 pb-3 text-sm text-gray-600 font-mono whitespace-pre-wrap leading-relaxed">{{ item.summary }}</div>
         </details>
         {% endfor %}
       </div>
