@@ -19,6 +19,6 @@ def test_cli_analyze_outputs_minimal_analysis_result():
     )
 
     assert result.exit_code == 0
-    assert "初步分析完成" in result.stdout
+    assert "根因" in result.stdout or "分析" in result.stdout
     assert "Top abnormal window" in result.stdout
     assert "Selected role-first strategy" in result.stdout

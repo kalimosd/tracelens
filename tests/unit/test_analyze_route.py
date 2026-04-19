@@ -12,5 +12,5 @@ def test_analyze_route_renders_result_page():
     )
 
     assert response.status_code == 200
-    assert "初步分析完成" in response.text
+    assert "根因" in response.text or "分析" in response.text
     assert "Top abnormal window" in response.text

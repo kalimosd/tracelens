@@ -6,13 +6,24 @@ from tracelens.llm import LLMClient, LLMMessage
 from tracelens.types import AnalysisResult, EvidenceItem
 
 SYNTHESIS_SYSTEM_PROMPT = """You are a performance analysis assistant for Android/Flutter applications.
-Given a set of evidence from Perfetto trace analysis, produce:
-1. A concise conclusion (1-3 sentences) identifying the main performance issue
-2. Actionable optimization directions (2-5 bullet points)
-3. Uncertainties — what could not be determined from the evidence
+Given evidence from Perfetto trace analysis, produce a report for business developers.
+They need to know: what's the problem, what's causing it, and what code to change.
 
-Be specific. Reference thread names, durations, and states from the evidence.
-Do NOT fabricate data not present in the evidence.
+Format:
+CONCLUSION:
+问题：<what happened, e.g. 掉帧>
+根因：
+  1. <specific cause with duration and suggestion>
+  2. <next cause>
+
+DIRECTIONS:
+- 【优先】<most impactful fix with specific function/component name>
+- 【建议】<secondary fix>
+
+UNCERTAINTIES:
+- <what couldn't be determined>
+
+Be specific. Use function names and durations from evidence. Do NOT fabricate data.
 Respond in the same language as the scenario description."""
 
 
@@ -44,16 +55,7 @@ Evidence:
 Analysis chain:
 {chain_text}
 
-Based on the evidence above, provide your analysis in this exact format:
-
-CONCLUSION: <your conclusion>
-
-DIRECTIONS:
-- <direction 1>
-- <direction 2>
-
-UNCERTAINTIES:
-- <uncertainty 1>"""
+Produce a report for business developers. They need to know what to fix in their code."""
 
     try:
         response = llm.chat([
@@ -62,179 +64,223 @@ UNCERTAINTIES:
         ])
         return _parse_llm_response(response, evidence, chain)
     except Exception:
-        # Fallback to rules if LLM call fails
         return _synthesize_with_rules(evidence, chain)
 
 
 def _parse_llm_response(
-    response: str,
-    evidence: list[EvidenceItem],
-    chain: list[str],
+    response: str, evidence: list[EvidenceItem], chain: list[str],
 ) -> AnalysisResult:
     conclusion = ""
     directions: list[str] = []
     uncertainties: list[str] = []
 
     section = ""
+    conclusion_lines: list[str] = []
     for line in response.strip().splitlines():
         stripped = line.strip()
         if stripped.startswith("CONCLUSION:"):
-            conclusion = stripped[len("CONCLUSION:"):].strip()
+            rest = stripped[len("CONCLUSION:"):].strip()
+            if rest:
+                conclusion_lines.append(rest)
             section = "conclusion"
-        elif stripped == "DIRECTIONS:":
+        elif stripped == "DIRECTIONS:" or stripped.startswith("DIRECTIONS:"):
             section = "directions"
-        elif stripped == "UNCERTAINTIES:":
+        elif stripped == "UNCERTAINTIES:" or stripped.startswith("UNCERTAINTIES:"):
             section = "uncertainties"
-        elif stripped.startswith("- "):
+        elif stripped.startswith("- ") or stripped.startswith("- 【"):
             item = stripped[2:].strip()
             if section == "directions":
                 directions.append(item)
             elif section == "uncertainties":
                 uncertainties.append(item)
-        elif section == "conclusion" and stripped and not conclusion:
-            conclusion = stripped
+        elif section == "conclusion" and stripped:
+            conclusion_lines.append(stripped)
+
+    conclusion = "\n".join(conclusion_lines) if conclusion_lines else ""
 
     return AnalysisResult(
-        conclusion=conclusion or "Analysis complete (see evidence for details)",
+        conclusion=conclusion or "分析完成（详见证据）",
         key_evidence=evidence,
         analysis_chain=chain,
-        optimization_directions=directions or ["Review the evidence above for optimization opportunities"],
+        optimization_directions=directions or ["检查上述证据中的耗时操作"],
         uncertainties=uncertainties,
     )
 
 
-# --- Rule-based fallback (no LLM) ---
+# --- Rule-based fallback ---
 
 def _synthesize_with_rules(
-    evidence: list[EvidenceItem],
-    chain: list[str],
+    evidence: list[EvidenceItem], chain: list[str],
 ) -> AnalysisResult:
-    conclusion = _build_conclusion(evidence)
-    directions = _build_directions(evidence)
-    uncertainties = _build_uncertainties(evidence)
-
     return AnalysisResult(
-        conclusion=conclusion,
+        conclusion=_build_conclusion(evidence),
         key_evidence=evidence,
         analysis_chain=chain,
-        optimization_directions=directions,
-        uncertainties=uncertainties,
+        optimization_directions=_build_directions(evidence),
+        uncertainties=_build_uncertainties(evidence),
     )
+
+
+def _ev_map(evidence: list[EvidenceItem]) -> dict[str, str]:
+    return {e.title: e.summary.split("\n")[0] for e in evidence}
 
 
 def _build_conclusion(evidence: list[EvidenceItem]) -> str:
-    titles = {e.title for e in evidence}
-    ev_map = {e.title: e.summary.split("\n")[0] for e in evidence}
+    em = _ev_map(evidence)
+    lines: list[str] = []
 
-    # Build a specific diagnostic summary, not just "存在长耗时操作"
-    findings: list[str] = []
-
-    # Frame info
+    # Problem: frame drops
+    problem = ""
     for title in ("帧节奏", "Frame rhythm"):
-        if title in ev_map:
-            s = ev_map[title]
-            over33 = re.search(r"(\d+) over 33ms", s)
-            over16 = re.search(r"(\d+) over 16ms", s)
-            frames = re.search(r"(\d+) frames", s)
-            if over33 and int(over33.group(1)) > 0:
-                findings.append(f"{over33.group(1)} 帧严重掉帧（>33ms）")
-            elif over16 and int(over16.group(1)) > 0:
-                findings.append(f"{over16.group(1)} 帧掉帧（>16ms）")
-            elif frames:
-                findings.append(f"{frames.group(1)} 帧均正常")
-            break
+        if title not in em:
+            continue
+        s = em[title]
+        over33 = re.search(r"(\d+) over 33ms", s)
+        over16 = re.search(r"(\d+) over 16ms", s)
+        if over33 and int(over33.group(1)) > 0:
+            problem = f"{over33.group(1)} 帧严重掉帧（>33ms，用户可感知卡顿）"
+        elif over16 and int(over16.group(1)) > 0:
+            problem = f"{over16.group(1)} 帧掉帧（>16ms）"
+        break
 
-    # Root cause from long slices
+    if problem:
+        lines.append(f"问题：{problem}")
+    lines.append("根因：")
+
+    # Root causes from long slices
+    causes: list[str] = []
     for title in ("长耗时操作", "Long slices"):
-        if title in ev_map:
-            s = ev_map[title]
-            top_slice = re.search(r"([\w#.]+)=(\d+)ms on (\S+)", s)
-            if top_slice:
-                name, dur, thread = top_slice.groups()
-                # Map slice name to human-readable cause
-                if "handleConfigurationChanged" in name:
-                    findings.append(f"横竖屏切换触发重建（{dur}ms）")
-                elif "handleLaunchActivity" in name or "bindApplication" in name:
-                    findings.append(f"Activity 启动耗时（{name}={dur}ms）")
-                elif "inflate" in name.lower():
-                    findings.append(f"布局加载耗时（{dur}ms）")
-                elif "doFrame" in name:
-                    findings.append(f"单帧处理超时（{dur}ms）")
-                elif "computeFrame" in name or "compute" in name.lower():
-                    findings.append(f"计算密集操作（{name}={dur}ms）")
-                else:
-                    findings.append(f"主要耗时：{name}={dur}ms on {thread}")
-            break
-
-    # Thread state
-    for title in ("线程状态分布", "Thread state distribution"):
-        if title in ev_map:
-            s = ev_map[title]
-            states = dict(re.findall(r"(\w+)=(\d+)ms", s))
-            total = sum(int(v) for v in states.values()) or 1
-            sleep_pct = int(states.get("S", 0)) * 100 // total
-            runnable_pct = int(states.get("R", 0)) * 100 // total
-            if sleep_pct > 40:
-                findings.append(f"主线程 {sleep_pct}% 时间被阻塞")
-            if runnable_pct > 10:
-                findings.append(f"调度竞争严重（Runnable {runnable_pct}%）")
-            break
+        if title not in em:
+            continue
+        for name, dur, thread in re.findall(r"([\w#.]+)=(\d+)ms on (\S+)", em[title])[:5]:
+            lower = name.lower()
+            d = int(dur)
+            if "handleconfigurationchanged" in lower:
+                causes.append(f"横竖屏切换触发 Activity 重建（{dur}ms）")
+            elif "handlelaunchactivity" in lower:
+                causes.append(f"Activity 启动 onCreate/onResume（{dur}ms）")
+            elif "bindapplication" in lower:
+                causes.append(f"冷启动 Application 绑定（{dur}ms）")
+            elif "inflate" in lower:
+                causes.append(f"布局加载 inflate（{dur}ms）← 主要瓶颈")
+            elif "loadxmlresource" in lower:
+                causes.append(f"XML 资源解析（{dur}ms）")
+            elif "measure" in lower:
+                causes.append(f"布局测量 measure（{dur}ms）← 嵌套层级过深")
+            elif "layout" in lower and d > 16:
+                causes.append(f"布局排列 layout（{dur}ms）")
+            elif "performtraversals" in lower:
+                causes.append(f"视图遍历（{dur}ms）")
+            elif "doframe" in lower:
+                causes.append(f"单帧处理超时（{dur}ms）")
+            elif "gc" in lower or name.startswith("young"):
+                causes.append(f"GC 暂停（{dur}ms）← 内存分配过多")
+            elif "computeframe" in lower or "compute" in lower:
+                causes.append(f"计算密集 {name}（{dur}ms）← 应移到后台线程")
+            elif "binder" in lower:
+                causes.append(f"Binder 跨进程调用（{dur}ms）")
+            elif d > 50:
+                causes.append(f"{name}（{dur}ms）")
+        break
 
     # Binder
     for title in ("Binder 调用", "Binder transactions"):
-        if title in ev_map:
-            s = ev_map[title]
-            max_match = re.search(r"max=(\d+)ms", s)
-            if max_match and int(max_match.group(1)) > 16:
-                findings.append(f"Binder 调用最长 {max_match.group(1)}ms")
-            break
+        if title not in em:
+            continue
+        calls = re.search(r"(\d+) calls", em[title])
+        total = re.search(r"total=(\d+)ms", em[title])
+        max_ms = re.search(r"max=(\d+)ms", em[title])
+        if calls and total:
+            causes.append(f"Binder 调用 {calls.group(1)} 次共 {total.group(1)}ms（最长 {max_ms.group(1) if max_ms else '?'}ms）")
+        break
 
-    if not findings:
-        # Fallback to generic
-        parts: list[str] = []
-        if any(t in titles for t in ("长耗时操作", "Long slices")):
-            parts.append("关键线程存在长耗时操作")
-        if any(t in titles for t in ("调度延迟", "Scheduling delay")):
-            parts.append("存在调度延迟")
-        if any(t in titles for t in ("线程阻塞", "Blocked threads")):
-            parts.append("线程阻塞")
-        if not parts:
-            return "初步分析完成"
-        return "分析结论：" + "；".join(parts) + "。"
+    # Thread state
+    for title in ("线程状态分布", "Thread state distribution"):
+        if title not in em:
+            continue
+        states = dict(re.findall(r"(\w+)=(\d+)ms", em[title]))
+        total = sum(int(v) for v in states.values()) or 1
+        sleep_pct = int(states.get("S", 0)) * 100 // total
+        if sleep_pct > 40:
+            causes.append(f"主线程 {sleep_pct}% 时间被阻塞等待（锁/Binder/I/O）")
+        break
 
-    return "诊断摘要：" + "，".join(findings) + "。"
+    if causes:
+        for i, c in enumerate(causes, 1):
+            lines.append(f"  {i}. {c}")
+    else:
+        lines.append("  未识别到具体根因，建议查看详细证据")
+
+    return "\n".join(lines)
 
 
 def _build_directions(evidence: list[EvidenceItem]) -> list[str]:
-    titles = {e.title for e in evidence}
+    em = _ev_map(evidence)
     directions: list[str] = []
 
-    if "Long slices" in titles:
-        directions.append("排查长耗时操作 — 考虑拆分耗时任务或移到非主线程执行")
-    if "Scheduling delay" in titles:
-        directions.append("检查 CPU 竞争 — 线程在 Runnable 状态等待说明调度压力大")
-    if "Blocked threads" in titles:
-        directions.append("排查阻塞原因 — 关注锁竞争、Binder 调用或 I/O 等待")
-    if "Frame rhythm" in titles:
-        directions.append("检查渲染管线 — 掉帧说明渲染或合成存在瓶颈")
-    if "Cross-process dependencies" in titles:
-        directions.append("检查跨进程调用 — Binder 或 IPC 延迟可能是卡顿原因")
-    if "Binder transactions" in titles:
-        directions.append("优化 Binder 调用 — 减少调用频率或数据传输量")
+    for title in ("长耗时操作", "Long slices"):
+        if title not in em:
+            continue
+        for name, dur in re.findall(r"([\w#.]+)=(\d+)ms", em[title])[:3]:
+            lower = name.lower()
+            d = int(dur)
+            if "inflate" in lower and d > 30:
+                directions.append(f"【优先】简化布局 XML 或用 ViewStub 延迟加载非关键区域（当前 inflate {dur}ms）")
+            elif "handleconfigurationchanged" in lower:
+                directions.append(f"【优先】缓存状态减少重建范围，或用 android:configChanges 避免重建（当前 {dur}ms）")
+            elif "bindapplication" in lower:
+                directions.append(f"【优先】延迟初始化非关键 SDK，减少 Application.onCreate 耗时（当前 {dur}ms）")
+            elif "handlelaunchactivity" in lower:
+                directions.append(f"【优先】减少 Activity.onCreate 中的同步操作（当前 {dur}ms）")
+            elif "measure" in lower or "layout" in lower:
+                directions.append(f"【建议】减少布局嵌套层级（当前 {name} {dur}ms）")
+            elif "computeframe" in lower or "compute" in lower:
+                directions.append(f"【优先】将 {name} 拆分为小任务或移到后台线程（当前 {dur}ms）")
+            elif "gc" in lower or name.startswith("young"):
+                directions.append(f"【建议】减少临时对象分配，复用对象池（GC {dur}ms）")
+        break
+
+    for title in ("Binder 调用", "Binder transactions"):
+        if title not in em:
+            continue
+        max_ms = re.search(r"max=(\d+)ms", em[title])
+        if max_ms and int(max_ms.group(1)) > 16:
+            directions.append(f"【建议】将耗时 Binder 调用移到后台线程或预加载（最长 {max_ms.group(1)}ms）")
+        break
+
+    for title in ("调度延迟", "Scheduling delay"):
+        if title not in em:
+            continue
+        delay = re.search(r"=(\d+)ms", em[title])
+        if delay and int(delay.group(1)) > 30:
+            directions.append(f"【建议】降低后台线程优先级，减少与主线程的 CPU 竞争（调度延迟 {delay.group(1)}ms）")
+        break
+
+    for title in ("线程状态分布", "Thread state distribution"):
+        if title not in em:
+            continue
+        states = dict(re.findall(r"(\w+)=(\d+)ms", em[title]))
+        total = sum(int(v) for v in states.values()) or 1
+        sleep_pct = int(states.get("S", 0)) * 100 // total
+        if sleep_pct > 40:
+            directions.append(f"【建议】排查主线程阻塞源（{sleep_pct}% 时间在等待），检查锁竞争和 I/O 操作")
+        break
 
     if not directions:
-        directions.append("检查异常窗口中得分最高的区间和目标进程的关键线程")
+        directions.append("检查上述证据中的长耗时操作和阻塞点")
 
     return directions
 
 
 def _build_uncertainties(evidence: list[EvidenceItem]) -> list[str]:
-    uncertainties: list[str] = []
     titles = {e.title for e in evidence}
+    uncertainties: list[str] = []
 
-    if "Frame rhythm" not in titles:
+    if not any(t in titles for t in ("帧节奏", "Frame rhythm")):
         uncertainties.append("缺少帧节奏数据 — trace 中可能没有帧相关的 slice")
-    if "Cross-process dependencies" not in titles and "Binder transactions" not in titles:
+    if not any(t in titles for t in ("跨进程依赖", "Binder 调用", "Cross-process dependencies", "Binder transactions")):
         uncertainties.append("缺少跨进程依赖数据")
+    if not any(t in titles for t in ("唤醒链", "Waker chain")):
+        uncertainties.append("缺少唤醒链数据 — 无法确定阻塞的具体来源（需要 sched_waking 事件）")
 
     return uncertainties
