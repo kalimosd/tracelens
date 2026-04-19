@@ -7,6 +7,7 @@ from typing import Any
 
 from tracelens.agent.planner import AnalysisPlan, choose_analysis_strategy, generate_plan
 from tracelens.agent.synthesis import synthesize_result
+from tracelens.agent.verifier import apply_corrections, verify_result
 from tracelens.analysis.chain import build_analysis_chain
 from tracelens.analysis.evidence import make_top_window_evidence
 from tracelens.llm import LLMClient
@@ -106,7 +107,14 @@ class Orchestrator:
                 chain.append(f"Skill {skill_id}: {sum(len(rows) for rows in result.step_results.values())} rows")
 
         # 5. Synthesize
-        return synthesize_result(evidence=evidence, chain=chain, llm=self.llm, scenario=scenario)
+        result = synthesize_result(evidence=evidence, chain=chain, llm=self.llm, scenario=scenario)
+
+        # 6. Verify
+        report = verify_result(result)
+        if report.has_issues:
+            result = apply_corrections(result, report)
+
+        return result
 
     def _skill_result_to_evidence(
         self, skill_id: str, step_results: dict[str, list[dict[str, Any]]]
