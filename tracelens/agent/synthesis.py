@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from tracelens.llm import LLMClient, LLMMessage
 from tracelens.types import AnalysisResult, EvidenceItem
 
@@ -122,23 +124,85 @@ def _synthesize_with_rules(
 
 def _build_conclusion(evidence: list[EvidenceItem]) -> str:
     titles = {e.title for e in evidence}
-    parts: list[str] = []
+    ev_map = {e.title: e.summary.split("\n")[0] for e in evidence}
 
-    if "Long slices" in titles:
-        parts.append("关键线程存在长耗时操作")
-    if "Scheduling delay" in titles:
-        parts.append("存在调度延迟")
-    if "Blocked threads" in titles:
-        parts.append("线程阻塞")
-    if "Frame rhythm" in titles:
-        for e in evidence:
-            if e.title == "Frame rhythm" and "jank" in e.summary and "0 jank" not in e.summary:
-                parts.append("检测到掉帧")
-                break
+    # Build a specific diagnostic summary, not just "存在长耗时操作"
+    findings: list[str] = []
 
-    if not parts:
-        return "初步分析完成"
-    return "分析结论：" + "；".join(parts) + "。"
+    # Frame info
+    for title in ("帧节奏", "Frame rhythm"):
+        if title in ev_map:
+            s = ev_map[title]
+            over33 = re.search(r"(\d+) over 33ms", s)
+            over16 = re.search(r"(\d+) over 16ms", s)
+            frames = re.search(r"(\d+) frames", s)
+            if over33 and int(over33.group(1)) > 0:
+                findings.append(f"{over33.group(1)} 帧严重掉帧（>33ms）")
+            elif over16 and int(over16.group(1)) > 0:
+                findings.append(f"{over16.group(1)} 帧掉帧（>16ms）")
+            elif frames:
+                findings.append(f"{frames.group(1)} 帧均正常")
+            break
+
+    # Root cause from long slices
+    for title in ("长耗时操作", "Long slices"):
+        if title in ev_map:
+            s = ev_map[title]
+            top_slice = re.search(r"([\w#.]+)=(\d+)ms on (\S+)", s)
+            if top_slice:
+                name, dur, thread = top_slice.groups()
+                # Map slice name to human-readable cause
+                if "handleConfigurationChanged" in name:
+                    findings.append(f"横竖屏切换触发重建（{dur}ms）")
+                elif "handleLaunchActivity" in name or "bindApplication" in name:
+                    findings.append(f"Activity 启动耗时（{name}={dur}ms）")
+                elif "inflate" in name.lower():
+                    findings.append(f"布局加载耗时（{dur}ms）")
+                elif "doFrame" in name:
+                    findings.append(f"单帧处理超时（{dur}ms）")
+                elif "computeFrame" in name or "compute" in name.lower():
+                    findings.append(f"计算密集操作（{name}={dur}ms）")
+                else:
+                    findings.append(f"主要耗时：{name}={dur}ms on {thread}")
+            break
+
+    # Thread state
+    for title in ("线程状态分布", "Thread state distribution"):
+        if title in ev_map:
+            s = ev_map[title]
+            states = dict(re.findall(r"(\w+)=(\d+)ms", s))
+            total = sum(int(v) for v in states.values()) or 1
+            sleep_pct = int(states.get("S", 0)) * 100 // total
+            runnable_pct = int(states.get("R", 0)) * 100 // total
+            if sleep_pct > 40:
+                findings.append(f"主线程 {sleep_pct}% 时间被阻塞")
+            if runnable_pct > 10:
+                findings.append(f"调度竞争严重（Runnable {runnable_pct}%）")
+            break
+
+    # Binder
+    for title in ("Binder 调用", "Binder transactions"):
+        if title in ev_map:
+            s = ev_map[title]
+            max_match = re.search(r"max=(\d+)ms", s)
+            if max_match and int(max_match.group(1)) > 16:
+                findings.append(f"Binder 调用最长 {max_match.group(1)}ms")
+            break
+
+    if not findings:
+        # Fallback to generic
+        parts: list[str] = []
+        if any(t in titles for t in ("长耗时操作", "Long slices")):
+            parts.append("关键线程存在长耗时操作")
+        if any(t in titles for t in ("调度延迟", "Scheduling delay")):
+            parts.append("存在调度延迟")
+        if any(t in titles for t in ("线程阻塞", "Blocked threads")):
+            parts.append("线程阻塞")
+        if not parts:
+            return "初步分析完成"
+        return "分析结论：" + "；".join(parts) + "。"
+
+    return "诊断摘要：" + "，".join(findings) + "。"
 
 
 def _build_directions(evidence: list[EvidenceItem]) -> list[str]:
