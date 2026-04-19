@@ -37,8 +37,8 @@ class TestOrchestratorEndToEnd:
     def test_jank_trace_finds_long_slices(self):
         result = self._run(JANK_TRACE, "滑动卡顿")
         titles = {e.title for e in result.key_evidence}
-        assert "Long slices" in titles
-        long_ev = next(e for e in result.key_evidence if e.title == "Long slices")
+        assert "长耗时操作" in titles
+        long_ev = next(e for e in result.key_evidence if e.title == "长耗时操作")
         assert "Choreographer#doFrame" in long_ev.summary
 
     def test_jank_trace_identifies_app_main(self):
@@ -52,14 +52,14 @@ class TestOrchestratorEndToEnd:
     def test_startup_trace_finds_bind_application(self):
         result = self._run(STARTUP_TRACE, "冷启动慢", "com.example.heavyapp")
         titles = {e.title for e in result.key_evidence}
-        assert "Long slices" in titles
-        long_ev = next(e for e in result.key_evidence if e.title == "Long slices")
+        assert "长耗时操作" in titles
+        long_ev = next(e for e in result.key_evidence if e.title == "长耗时操作")
         assert "bindApplication" in long_ev.summary
 
     def test_cpu_trace_finds_scheduling_delay(self):
         result = self._run(CPU_TRACE, "后台计算卡顿", "com.example.compute")
         titles = {e.title for e in result.key_evidence}
-        assert "Scheduling delay" in titles
+        assert "调度延迟" in titles
 
     def test_result_has_all_required_fields(self):
         result = self._run(JANK_TRACE, "test")

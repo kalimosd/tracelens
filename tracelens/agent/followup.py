@@ -64,12 +64,12 @@ def _answer_with_rules(question: str, result: AnalysisResult) -> str:
 
     keyword_map = {
         ("线程", "thread", "role"): "key_evidence",
-        ("阻塞", "block", "sleep", "waiting", "被谁"): ["Blocked threads", "Waker chain", "Blocked functions"],
-        ("调度", "schedule", "delay", "runnable"): ["Scheduling delay"],
-        ("帧", "frame", "jank", "fps", "掉帧"): ["Frame rhythm", "Per-frame analysis", "Frame thread states"],
-        ("长", "long", "slow", "耗时"): ["Long slices"],
-        ("状态", "state", "distribution"): ["Thread state distribution"],
-        ("进程", "process", "binder", "跨进程"): ["Cross-process dependencies", "Binder transactions", "Waker chain"],
+        ("阻塞", "block", "sleep", "waiting", "被谁"): ["Blocked threads", "线程阻塞", "Waker chain", "唤醒链", "Blocked functions", "阻塞函数"],
+        ("调度", "schedule", "delay", "runnable"): ["Scheduling delay", "调度延迟"],
+        ("帧", "frame", "jank", "fps", "掉帧"): ["Frame rhythm", "帧节奏", "Per-frame analysis", "逐帧分析", "Frame thread states", "帧内线程状态", "Frame causal chain", "帧因果链"],
+        ("长", "long", "slow", "耗时"): ["Long slices", "长耗时操作"],
+        ("状态", "state", "distribution"): ["Thread state distribution", "线程状态分布"],
+        ("进程", "process", "binder", "跨进程"): ["Cross-process dependencies", "跨进程依赖", "Binder transactions", "Binder 调用", "Waker chain", "唤醒链"],
         ("优化", "optimize", "建议", "direction"): "directions",
         ("结论", "conclusion", "总结", "summary"): "conclusion",
     }

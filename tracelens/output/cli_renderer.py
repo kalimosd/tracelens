@@ -57,14 +57,13 @@ def _build_summary_table(result: AnalysisResult) -> str:
         title = e.title
         summary = e.summary.split("\n")[0]  # First line only
 
-        if title == "Process overview":
+        if title in ("Process overview", "进程概览"):
             metrics.append(("进程概览", summary))
 
-        elif title == "Frame rhythm":
+        elif title in ("Frame rhythm", "帧节奏"):
             metrics.append(("帧统计", summary))
 
-        elif title == "Thread state distribution":
-            # Parse percentages
+        elif title in ("Thread state distribution", "线程状态分布"):
             states = dict(re.findall(r"(\w+)=(\d+)ms", summary))
             total = sum(int(v) for v in states.values()) or 1
             running_pct = int(states.get("Running", 0)) * 100 // total
@@ -72,13 +71,13 @@ def _build_summary_table(result: AnalysisResult) -> str:
             runnable_pct = int(states.get("R", 0)) * 100 // total
             metrics.append(("主线程状态", f"Running {running_pct}% / Sleep {sleep_pct}% / Runnable {runnable_pct}%"))
 
-        elif title == "Scheduling delay":
+        elif title in ("Scheduling delay", "调度延迟"):
             metrics.append(("调度延迟", summary))
 
-        elif title == "Binder transactions":
+        elif title in ("Binder transactions", "Binder 调用"):
             metrics.append(("Binder 调用", summary))
 
-        elif title == "Long slices" and "→" not in summary:
+        elif title in ("Long slices", "长耗时操作") and "→" not in summary:
             # Only the raw data line, not interpreted
             first_slice = summary.split(";")[0].strip()
             metrics.append(("最长耗时", first_slice))

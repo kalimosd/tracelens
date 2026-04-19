@@ -25,7 +25,7 @@
         <div class="bg-gray-800 text-white px-4 py-2 text-sm font-medium">分析概览</div>
         <table class="w-full text-sm">
           {% for item in result.key_evidence %}
-          {% if item.title in ['Process overview', 'Frame rhythm', 'Thread state distribution', 'Scheduling delay', 'Binder transactions'] %}
+          {% if item.title in ['Process overview', 'Frame rhythm', 'Thread state distribution', 'Scheduling delay', 'Binder transactions', '进程概览', '帧节奏', '线程状态分布', '调度延迟', 'Binder 调用'] %}
           <tr class="border-b">
             <td class="px-4 py-2 font-medium text-gray-600 w-1/4">{{ item.title }}</td>
             <td class="px-4 py-2 text-gray-800 font-mono">{{ item.summary.split('\n')[0] }}</td>

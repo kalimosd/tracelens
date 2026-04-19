@@ -152,10 +152,17 @@ def _interpret_causal_chain(e: EvidenceItem) -> EvidenceItem:
 
 _INTERPRETERS = {
     "Thread state distribution": _interpret_thread_state,
+    "线程状态分布": _interpret_thread_state,
     "Long slices": _interpret_long_slices,
+    "长耗时操作": _interpret_long_slices,
     "Scheduling delay": _interpret_scheduling_delay,
+    "调度延迟": _interpret_scheduling_delay,
     "Blocked threads": _interpret_blocked_threads,
+    "线程阻塞": _interpret_blocked_threads,
     "Frame rhythm": _interpret_frame_rhythm,
+    "帧节奏": _interpret_frame_rhythm,
     "Binder transactions": _interpret_binder,
+    "Binder 调用": _interpret_binder,
     "Frame causal chain": _interpret_causal_chain,
+    "帧因果链": _interpret_causal_chain,
 }

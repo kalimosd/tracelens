@@ -11,6 +11,28 @@ from tracelens.agent.verifier import apply_corrections, verify_result
 from tracelens.analysis.chain import build_analysis_chain
 from tracelens.analysis.evidence import make_top_window_evidence
 from tracelens.analysis.interpreter import interpret_evidence
+
+# Chinese display names for evidence titles
+_TITLE_ZH: dict[str, str] = {
+    "Process overview": "进程概览",
+    "Thread state distribution": "线程状态分布",
+    "Long slices": "长耗时操作",
+    "Scheduling delay": "调度延迟",
+    "Blocked threads": "线程阻塞",
+    "Frame rhythm": "帧节奏",
+    "Frame causal chain": "帧因果链",
+    "Per-frame analysis": "逐帧分析",
+    "Frame thread states": "帧内线程状态",
+    "Key threads": "关键线程",
+    "Binder transactions": "Binder 调用",
+    "Waker chain": "唤醒链",
+    "Blocked functions": "阻塞函数",
+    "Cross-process dependencies": "跨进程依赖",
+}
+
+
+def _zh(title: str) -> str:
+    return _TITLE_ZH.get(title, title)
 from tracelens.llm import LLMClient
 from tracelens.semantics.role_identifier import identify_thread_role
 from tracelens.skills.abnormal_windows import AbnormalWindowsSkill
@@ -55,7 +77,7 @@ class Orchestrator:
         proc = select_focused_process(processes, focused_process)
         if proc is None:
             return synthesize_result(
-                evidence=[EvidenceItem(title="No process found", summary="Trace contains no usable processes")],
+                evidence=[EvidenceItem(title="未找到进程", summary="Trace contains no usable processes")],
                 chain=["No usable process found in trace"],
             )
 
@@ -129,7 +151,7 @@ class Orchestrator:
         if skill_id == "process_overview":
             for row in step_results.get("overview", []):
                 evidence.append(EvidenceItem(
-                    title="Process overview",
+                    title=_zh("Process overview"),
                     summary=f"{row.get('thread_count', 0)} threads, {row.get('slice_count', 0)} slices",
                 ))
 
@@ -137,7 +159,7 @@ class Orchestrator:
             rows = step_results.get("state_distribution", [])
             if rows:
                 summary = ", ".join(f"{r['state']}={r['total_ms']}ms" for r in rows[:5])
-                evidence.append(EvidenceItem(title="Thread state distribution", summary=summary))
+                evidence.append(EvidenceItem(title=_zh("Thread state distribution"), summary=summary))
 
         elif skill_id == "long_task_detection":
             rows = step_results.get("long_slices", [])
@@ -145,13 +167,13 @@ class Orchestrator:
                 desc = "; ".join(
                     f"{r['name']}={r['dur_ms']}ms on {r.get('thread_name', '?')}" for r in rows[:5]
                 )
-                evidence.append(EvidenceItem(title="Long slices", summary=desc))
+                evidence.append(EvidenceItem(title=_zh("Long slices"), summary=desc))
 
         elif skill_id == "scheduling_delay":
             rows = step_results.get("delay_by_thread", [])
             if rows:
                 desc = "; ".join(f"{r['thread_name']}={r['total_delay_ms']}ms" for r in rows[:3])
-                evidence.append(EvidenceItem(title="Scheduling delay", summary=desc))
+                evidence.append(EvidenceItem(title=_zh("Scheduling delay"), summary=desc))
 
         elif skill_id == "blocking_chain":
             rows = step_results.get("blocked_by_thread", [])
@@ -170,7 +192,7 @@ class Orchestrator:
                     f"{name}: total={d['total_ms']}ms, max_single={d['max_ms']}ms, count={d['count']}"
                     for name, d in top
                 )
-                evidence.append(EvidenceItem(title="Blocked threads", summary=desc))
+                evidence.append(EvidenceItem(title=_zh("Blocked threads"), summary=desc))
 
         elif skill_id == "frame_rhythm":
             summary_rows = step_results.get("frame_summary", [])
@@ -183,7 +205,7 @@ class Orchestrator:
                 over16 = r.get("over_16ms") or 0
                 over33 = r.get("over_33ms") or 0
                 evidence.append(EvidenceItem(
-                    title="Frame rhythm",
+                    title=_zh("Frame rhythm"),
                     summary=f"{fc} frames, avg {avg}ms, {over16} over 16ms, {over33} over 33ms",
                 ))
 
@@ -192,7 +214,7 @@ class Orchestrator:
             if rows:
                 top = rows[:5]
                 desc = "; ".join(f"{r['thread_name']} ({r['slice_count']} slices)" for r in top)
-                evidence.append(EvidenceItem(title="Key threads", summary=desc))
+                evidence.append(EvidenceItem(title=_zh("Key threads"), summary=desc))
 
         elif skill_id == "per_frame_analysis":
             frames = step_results.get("frame_list", [])
@@ -200,7 +222,7 @@ class Orchestrator:
             if frames:
                 top = frames[:5]
                 desc = "; ".join(f"{r['frame_name']}={r['dur_ms']}ms on {r.get('thread_name', '?')}" for r in top)
-                evidence.append(EvidenceItem(title="Per-frame analysis", summary=f"{len(frames)} frames analyzed: {desc}"))
+                evidence.append(EvidenceItem(title=_zh("Per-frame analysis"), summary=f"{len(frames)} frames analyzed: {desc}"))
             if states:
                 # Group by frame, show state breakdown for worst frames
                 by_frame: dict[int, list[str]] = {}
@@ -211,7 +233,7 @@ class Orchestrator:
                 for ft, breakdown in list(by_frame.items())[:3]:
                     parts.append(f"frame@{ft}: {', '.join(breakdown)}")
                 if parts:
-                    evidence.append(EvidenceItem(title="Frame thread states", summary="; ".join(parts)))
+                    evidence.append(EvidenceItem(title=_zh("Frame thread states"), summary="; ".join(parts)))
 
         elif skill_id == "waker_chain":
             wakers = step_results.get("waker_summary", [])
@@ -221,16 +243,16 @@ class Orchestrator:
                     f"{r['blocked_thread']} woken by {r['waker_thread']}({r.get('waker_process','?')}) {r['wake_count']}x, blocked {r['total_blocked_ms']}ms"
                     for r in wakers[:5]
                 )
-                evidence.append(EvidenceItem(title="Waker chain", summary=desc))
+                evidence.append(EvidenceItem(title=_zh("Waker chain"), summary=desc))
             if blocked_fns:
                 desc = "; ".join(f"{r['thread_name']}: {r['blocked_function']} ({r['total_ms']}ms, {r['count']}x)" for r in blocked_fns[:5])
-                evidence.append(EvidenceItem(title="Blocked functions", summary=desc))
+                evidence.append(EvidenceItem(title=_zh("Blocked functions"), summary=desc))
 
         elif skill_id == "binder_analysis":
             summary = step_results.get("binder_summary", [])
             if summary:
                 desc = "; ".join(f"{r['thread_name']}: {r['call_count']} calls, total={r['total_ms']}ms, max={r['max_ms']}ms" for r in summary[:3])
-                evidence.append(EvidenceItem(title="Binder transactions", summary=desc))
+                evidence.append(EvidenceItem(title=_zh("Binder transactions"), summary=desc))
 
         elif skill_id == "frame_causal_chain":
             frames = step_results.get("jank_frames", [])
@@ -255,7 +277,7 @@ class Orchestrator:
                         children_desc = "无子 slice"
 
                     evidence.append(EvidenceItem(
-                        title="Frame causal chain",
+                        title=_zh("Frame causal chain"),
                         summary=f"帧 {thread}@{frame_ts}: {dur_ms}ms\n  状态: {state_desc}\n  耗时操作: {children_desc}",
                     ))
 
