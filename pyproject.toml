@@ -26,6 +26,9 @@ llm = [
   "anthropic>=0.42.0",
   "openai>=1.58.0",
 ]
+mcp = [
+  "mcp>=1.0.0",
+]
 
 [project.scripts]
 tracelens = "tracelens.main:app"
